@@ -29,6 +29,9 @@ BACKUP_FILE = "knowledge_backup.json"
 
 graph = rdflib.Graph()
 
+# Mapping of fact IDs to triples for editing operations
+fact_index = {}
+
 def save_knowledge_graph():
     """Save the knowledge graph to persistent storage"""
     try:
@@ -846,12 +849,82 @@ def show_graph_contents():
     if len(all_facts) > 20:
         result += f"\n... and {len(all_facts) - 20} more facts"
     
-    # Add search suggestions
-    result += "\n\n## **Search Suggestions:**\n"
-    result += "Try asking the chatbot about any of these subjects or facts!\n"
-    result += "Examples: 'What do you know about [subject]?' or 'Tell me about [fact]'"
+    # Intentionally omit search suggestions to keep the view focused on facts
     
     return result
+
+def list_facts_for_editing():
+    """Return a list of facts with IDs for selection and build index"""
+    global fact_index
+    fact_index = {}
+    options = []
+    for i, (s, p, o) in enumerate(list(graph), start=1):
+        subject = str(s).split(':')[-1] if ':' in str(s) else str(s)
+        predicate = str(p).split(':')[-1] if ':' in str(p) else str(p)
+        object_val = str(o)
+        label = f"{i}. {subject} {predicate} {object_val}"
+        options.append(label)
+        fact_index[i] = (s, p, o)
+    status = f"Loaded {len(options)} facts for editing"
+    return options, status
+
+def load_fact_fields(fact_label):
+    """Given a dropdown label, return subject, predicate, object fields"""
+    if not fact_label:
+        return "", "", ""
+    try:
+        fact_id_str = fact_label.split('.', 1)[0].strip()
+        fact_id = int(fact_id_str)
+        s, p, o = fact_index.get(fact_id, (None, None, None))
+        if s is None:
+            return "", "", ""
+        subject = str(s).split(':')[-1] if ':' in str(s) else str(s)
+        predicate = str(p).split(':')[-1] if ':' in str(p) else str(p)
+        object_val = str(o)
+        return subject, predicate, object_val
+    except Exception:
+        return "", "", ""
+
+def update_fact(fact_label, new_subject, new_predicate, new_object):
+    """Update a single fact by ID and persist changes"""
+    if not fact_label:
+        return "⚠️ Select a fact first.", gr.update()
+    try:
+        fact_id = int(fact_label.split('.', 1)[0].strip())
+        old = fact_index.get(fact_id)
+        if not old:
+            return "⚠️ Fact not found. Click Refresh Facts and try again.", gr.update()
+        s_old, p_old, o_old = old
+        # Remove old triple
+        graph.remove((s_old, p_old, o_old))
+        # Add new triple
+        s_new = rdflib.URIRef(f"urn:{new_subject.strip()}")
+        p_new = rdflib.URIRef(f"urn:{new_predicate.strip()}")
+        o_new = rdflib.Literal(new_object.strip())
+        graph.add((s_new, p_new, o_new))
+        # Persist
+        save_knowledge_graph()
+        # Refresh list
+        options, _ = list_facts_for_editing()
+        return "✅ Fact updated and saved.", gr.update(choices=options)
+    except Exception as e:
+        return f"❌ Update failed: {e}", gr.update()
+
+def delete_fact(fact_label):
+    """Delete a single fact by ID and persist changes"""
+    if not fact_label:
+        return "⚠️ Select a fact first.", gr.update()
+    try:
+        fact_id = int(fact_label.split('.', 1)[0].strip())
+        old = fact_index.get(fact_id)
+        if not old:
+            return "⚠️ Fact not found. Click Refresh Facts and try again.", gr.update()
+        graph.remove(old)
+        save_knowledge_graph()
+        options, _ = list_facts_for_editing()
+        return "🗑️ Fact deleted.", gr.update(choices=options, value=None)
+    except Exception as e:
+        return f"❌ Delete failed: {e}", gr.update()
 
 def visualize_knowledge_graph():
     """Create an interactive network visualization of the knowledge graph"""
@@ -2013,6 +2086,20 @@ with gr.Blocks(title="Research Brain") as demo:
                 with gr.Row():
                     show_button = gr.Button("View Knowledge Base", variant="secondary")
                 graph_view = gr.Textbox(label="Knowledge Contents", visible=True, lines=3, max_lines=4)
+
+                # Fact editor
+                gr.Markdown("### Edit or Remove Facts")
+                with gr.Row():
+                    refresh_facts_btn = gr.Button("Refresh Facts", variant="secondary")
+                fact_selector = gr.Dropdown(label="Select Fact", choices=[], interactive=True)
+                with gr.Row():
+                    subj_box = gr.Textbox(label="Subject")
+                    pred_box = gr.Textbox(label="Predicate")
+                obj_box = gr.Textbox(label="Object", lines=2)
+                with gr.Row():
+                    update_fact_btn = gr.Button("Update Fact", variant="primary")
+                    delete_fact_btn = gr.Button("Delete Fact", variant="secondary")
+                fact_edit_status = gr.Textbox(label="Edit Status", interactive=False)
             
     # Event handlers for simplified UI
     add_button.click(
@@ -2042,6 +2129,27 @@ with gr.Blocks(title="Research Brain") as demo:
     save_button.click(
         fn=save_and_backup,
         outputs=[download_button, graph_info]
+    )
+
+    # Fact editor events
+    refresh_facts_btn.click(
+        fn=list_facts_for_editing,
+        outputs=[fact_selector, fact_edit_status]
+    )
+    fact_selector.change(
+        fn=load_fact_fields,
+        inputs=fact_selector,
+        outputs=[subj_box, pred_box, obj_box]
+    )
+    update_fact_btn.click(
+        fn=update_fact,
+        inputs=[fact_selector, subj_box, pred_box, obj_box],
+        outputs=[fact_edit_status, fact_selector]
+    )
+    delete_fact_btn.click(
+        fn=delete_fact,
+        inputs=fact_selector,
+        outputs=[fact_edit_status, fact_selector]
     )
 
 # =========================================================
