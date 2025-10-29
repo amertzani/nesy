@@ -1,6 +1,10 @@
-gradio
+gradio>=4.0.0
 rdflib
 huggingface_hub
 PyPDF2
 python-docx
 pandas
+networkx
+matplotlib
+plotly
+numpy

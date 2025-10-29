@@ -1,4 +1,4 @@
-# app.py
+# app.py - AsiminaM
 import gradio as gr
 import rdflib
 import re
@@ -8,10 +8,17 @@ from huggingface_hub import InferenceClient
 import PyPDF2
 from docx import Document
 import pandas as pd
+import networkx as nx
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+import plotly.graph_objects as go
+import plotly.express as px
 
-# =========================================================
+# ==========================================================
 #  🧠 1. Global Knowledge Graph with Persistent Storage
-# =========================================================
+# ==========================================================
 import json
 import pickle
 from datetime import datetime
@@ -47,11 +54,11 @@ def save_knowledge_graph():
         with open(BACKUP_FILE, 'w', encoding='utf-8') as f:
             json.dump(backup_data, f, indent=2, ensure_ascii=False)
         
-        print(f"💾 Saved {len(graph)} facts to persistent storage")
-        return f"💾 Saved {len(graph)} facts to storage"
+        print(f"Saved {len(graph)} facts to persistent storage")
+        return f" Saved {len(graph)} facts to storage"
         
     except Exception as e:
-        error_msg = f"❌ Error saving knowledge: {e}"
+        error_msg = f" Error saving knowledge: {e}"
         print(error_msg)
         return error_msg
 
@@ -70,36 +77,101 @@ def load_knowledge_graph():
             return "📂 No existing knowledge file found, starting fresh"
             
     except Exception as e:
-        error_msg = f"❌ Error loading knowledge: {e}"
+        error_msg = f" Error loading knowledge: {e}"
         print(error_msg)
         return error_msg
 
-def get_knowledge_file():
-    """Return the knowledge backup file for download"""
+def create_and_get_backup():
+    """Create a comprehensive backup and return the file path"""
     try:
-        # Create a comprehensive backup with all facts
+        print(f"Creating backup for graph with {len(graph)} facts")
+        
+        # Create comprehensive backup
         create_comprehensive_backup()
-        return BACKUP_FILE
+        
+        # Verify the backup was created and contains data
+        if os.path.exists(BACKUP_FILE):
+            with open(BACKUP_FILE, 'r', encoding='utf-8') as f:
+                backup_content = json.load(f)
+                fact_count = backup_content.get('metadata', {}).get('total_facts', 0)
+                print(f" Knowledge backup created with {fact_count} facts")
+                
+                if fact_count == 0:
+                    print("⚠️ Warning: Backup file created but contains no facts")
+                    # Create a backup even if empty to show the structure
+                    create_empty_backup_structure()
+                    
+                # Return both the file path and status message
+                return BACKUP_FILE, f" Backup created successfully with {fact_count} facts!"
+        else:
+            print(" Backup file was not created")
+            return None, " Failed to create backup file"
+        
     except Exception as e:
-        print(f"❌ Error getting knowledge file: {e}")
-        return None
+        print(f" Error creating backup: {e}")
+        # Create a minimal backup file even if there's an error
+        create_error_backup(str(e))
+        return BACKUP_FILE, f"⚠️ Backup created with errors: {e}"
+
+def verify_backup_contents():
+    """Verify and display backup file contents"""
+    try:
+        if not os.path.exists(BACKUP_FILE):
+            return " No backup file found. Click 'Create Knowledge Backup' first."
+        
+        with open(BACKUP_FILE, 'r', encoding='utf-8') as f:
+            backup_data = json.load(f)
+        
+        metadata = backup_data.get('metadata', {})
+        facts = backup_data.get('facts', [])
+        
+        result = f"📊 **Backup File Verification:**\n\n"
+        result += f"**File:** `{BACKUP_FILE}`\n"
+        result += f"**Size:** {os.path.getsize(BACKUP_FILE):,} bytes\n"
+        result += f"**Created:** {metadata.get('timestamp', 'Unknown')}\n"
+        result += f"**Total Facts:** {metadata.get('total_facts', 0)}\n"
+        result += f"**Backup Type:** {metadata.get('backup_type', 'Unknown')}\n\n"
+        
+        if facts:
+            result += f"**Sample Facts (first 5):**\n"
+            for i, fact in enumerate(facts[:5]):
+                result += f"{i+1}. {fact.get('subject')} {fact.get('predicate')} {fact.get('object')}\n"
+            
+            if len(facts) > 5:
+                result += f"\n... and {len(facts) - 5} more facts\n"
+        else:
+            result += "**⚠️ No facts found in backup file!**\n"
+        
+        return result
+        
+    except Exception as e:
+        return f" Error verifying backup: {e}"
+
+def get_knowledge_file():
+    """Return the knowledge backup file for download (legacy function)"""
+    file_path, status = create_and_get_backup()
+    return file_path
 
 def create_comprehensive_backup():
     """Create a comprehensive backup file with all knowledge facts"""
     global graph
     
     try:
+        print(f"Creating backup for graph with {len(graph)} facts")
+        
         # Create detailed backup data
         backup_data = {
             "metadata": {
                 "timestamp": datetime.now().isoformat(),
                 "total_facts": len(graph),
-                "backup_type": "comprehensive_knowledge_base"
+                "backup_type": "comprehensive_knowledge_base",
+                "graph_size": len(graph)
             },
             "facts": []
         }
         
         # Add all facts from the graph
+        fact_count = 0
         for i, (s, p, o) in enumerate(graph):
             # Clean up the subject, predicate, object for better readability
             subject = str(s).split(':')[-1] if ':' in str(s) else str(s)
@@ -115,6 +187,10 @@ def create_comprehensive_backup():
                 "full_predicate": str(p),
                 "full_object": str(o)
             })
+            fact_count += 1
+        
+        # Update the fact count in metadata
+        backup_data["metadata"]["total_facts"] = fact_count
         
         # Save as JSON
         with open(BACKUP_FILE, 'w', encoding='utf-8') as f:
@@ -123,26 +199,88 @@ def create_comprehensive_backup():
         # Also create a human-readable text version
         create_readable_backup()
         
-        print(f"💾 Created comprehensive backup with {len(graph)} facts")
+        print(f"Created comprehensive backup with {fact_count} facts")
         
     except Exception as e:
-        print(f"❌ Error creating comprehensive backup: {e}")
+        print(f" Error creating comprehensive backup: {e}")
+        # Create a minimal backup even if there's an error
+        create_error_backup(str(e))
+
+def create_empty_backup_structure():
+    """Create a backup file structure even when no facts exist"""
+    try:
+        backup_data = {
+            "metadata": {
+                "timestamp": datetime.now().isoformat(),
+                "total_facts": 0,
+                "backup_type": "empty_knowledge_base",
+                "message": "No facts found in knowledge graph"
+            },
+            "facts": [],
+            "instructions": {
+                "how_to_add_knowledge": [
+                    "1. Add text directly using the 'Add Knowledge from Text' box",
+                    "2. Upload documents (PDF, DOCX, TXT, CSV) using the file upload",
+                    "3. Process files to extract knowledge automatically",
+                    "4. Use 'Save Knowledge' to persist your data"
+                ]
+            }
+        }
+        
+        with open(BACKUP_FILE, 'w', encoding='utf-8') as f:
+            json.dump(backup_data, f, indent=2, ensure_ascii=False)
+        
+        print(" Created empty backup structure")
+        
+    except Exception as e:
+        print(f" Error creating empty backup: {e}")
+
+def create_error_backup(error_message):
+    """Create a backup file when there's an error"""
+    try:
+        backup_data = {
+            "metadata": {
+                "timestamp": datetime.now().isoformat(),
+                "total_facts": 0,
+                "backup_type": "error_backup",
+                "error": error_message
+            },
+            "facts": [],
+            "note": "An error occurred while creating the backup. Please try again."
+        }
+        
+        with open(BACKUP_FILE, 'w', encoding='utf-8') as f:
+            json.dump(backup_data, f, indent=2, ensure_ascii=False)
+        
+        print(f" Created error backup: {error_message}")
+        
+    except Exception as e:
+        print(f" Error creating error backup: {e}")
 
 def create_readable_backup():
     """Create a human-readable text backup"""
     global graph
     
     try:
+        print(f"Creating readable backup for {len(graph)} facts")
+        
         # Create readable text file
         readable_text = f"# Knowledge Base Backup\n"
         readable_text += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         readable_text += f"Total Facts: {len(graph)}\n\n"
         
         if len(graph) == 0:
-            readable_text += "No facts in knowledge base.\n"
+            readable_text += "No facts in knowledge base.\n\n"
+            readable_text += "## How to Add Knowledge:\n"
+            readable_text += "1. Add text directly using the 'Add Knowledge from Text' box\n"
+            readable_text += "2. Upload documents (PDF, DOCX, TXT, CSV) using the file upload\n"
+            readable_text += "3. Process files to extract knowledge automatically\n"
+            readable_text += "4. Use 'Save Knowledge' to persist your data\n"
         else:
             # Group facts by subject for better organization
             facts_by_subject = {}
+            fact_count = 0
+            
             for s, p, o in graph:
                 subject = str(s).split(':')[-1] if ':' in str(s) else str(s)
                 predicate = str(p).split(':')[-1] if ':' in str(p) else str(p)
@@ -151,6 +289,7 @@ def create_readable_backup():
                 if subject not in facts_by_subject:
                     facts_by_subject[subject] = []
                 facts_by_subject[subject].append(f"{predicate}: {object_val}")
+                fact_count += 1
             
             # Add organized facts
             for subject, facts in facts_by_subject.items():
@@ -158,15 +297,82 @@ def create_readable_backup():
                 for fact in facts:
                     readable_text += f"- {fact}\n"
                 readable_text += "\n"
+            
+            readable_text += f"\n## Summary\n"
+            readable_text += f"Total facts processed: {fact_count}\n"
+            readable_text += f"Unique subjects: {len(facts_by_subject)}\n"
         
         # Save readable version
         with open("knowledge_readable.txt", 'w', encoding='utf-8') as f:
             f.write(readable_text)
         
-        print(f"📄 Created readable backup: knowledge_readable.txt")
+        print(f" Created readable backup: knowledge_readable.txt with {len(graph)} facts")
         
     except Exception as e:
-        print(f"❌ Error creating readable backup: {e}")
+        print(f" Error creating readable backup: {e}")
+        # Create a minimal readable backup even if there's an error
+        try:
+            error_text = f"# Knowledge Base Backup (Error)\n"
+            error_text += f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            error_text += f"Error: {e}\n"
+            error_text += f"Total Facts: {len(graph)}\n"
+            
+            with open("knowledge_readable.txt", 'w', encoding='utf-8') as f:
+                f.write(error_text)
+            print(" Created error-readable backup")
+        except:
+            print(" Failed to create even error-readable backup")
+
+def debug_backup_process():
+    """Debug function to help troubleshoot backup issues"""
+    global graph
+    
+    debug_info = f" **Backup Debug Information:**\n\n"
+    
+    # Check graph state
+    debug_info += f"**Graph State:**\n"
+    debug_info += f"• Graph length: {len(graph)}\n"
+    debug_info += f"• Graph type: {type(graph)}\n"
+    debug_info += f"• Graph empty: {len(graph) == 0}\n\n"
+    
+    # Check files
+    debug_info += f"**File Status:**\n"
+    debug_info += f"• Knowledge file exists: {os.path.exists(KNOWLEDGE_FILE)}\n"
+    debug_info += f"• Backup file exists: {os.path.exists(BACKUP_FILE)}\n"
+    debug_info += f"• Readable file exists: {os.path.exists('knowledge_readable.txt')}\n\n"
+    
+    # Show sample facts if any exist
+    if len(graph) > 0:
+        debug_info += f"**Sample Facts (first 5):**\n"
+        fact_count = 0
+        for s, p, o in graph:
+            if fact_count >= 5:
+                break
+            debug_info += f"• {s} {p} {o}\n"
+            fact_count += 1
+        debug_info += "\n"
+    else:
+        debug_info += f"**No facts in graph**\n\n"
+    
+    # Test backup creation
+    debug_info += f"**Testing Backup Creation:**\n"
+    try:
+        create_comprehensive_backup()
+        debug_info += f"• Backup creation:  Success\n"
+        
+        if os.path.exists(BACKUP_FILE):
+            with open(BACKUP_FILE, 'r', encoding='utf-8') as f:
+                backup_data = json.load(f)
+                fact_count = backup_data.get('metadata', {}).get('total_facts', 0)
+                debug_info += f"• Facts in backup: {fact_count}\n"
+                debug_info += f"• Backup metadata: {backup_data.get('metadata', {})}\n"
+        else:
+            debug_info += f"• Backup file:  Not created\n"
+            
+    except Exception as e:
+        debug_info += f"• Backup creation:  Error: {e}\n"
+    
+    return debug_info
 
 def show_storage_info():
     """Show information about where files are stored"""
@@ -176,9 +382,9 @@ def show_storage_info():
     pkl_exists = os.path.exists(KNOWLEDGE_FILE)
     json_exists = os.path.exists(BACKUP_FILE)
     
-    info += f"**Primary Storage:** `{KNOWLEDGE_FILE}` {'✅ Exists' if pkl_exists else '❌ Not found'}\n"
-    info += f"**Backup Storage:** `{BACKUP_FILE}` {'✅ Exists' if json_exists else '❌ Not found'}\n"
-    info += f"**Readable Backup:** `knowledge_readable.txt` {'✅ Exists' if os.path.exists('knowledge_readable.txt') else '❌ Not found'}\n\n"
+    info += f"**Primary Storage:** `{KNOWLEDGE_FILE}` {' Exists' if pkl_exists else ' Not found'}\n"
+    info += f"**Backup Storage:** `{BACKUP_FILE}` {' Exists' if json_exists else ' Not found'}\n"
+    info += f"**Readable Backup:** `knowledge_readable.txt` {' Exists' if os.path.exists('knowledge_readable.txt') else ' Not found'}\n\n"
     
     if pkl_exists:
         file_size = os.path.getsize(KNOWLEDGE_FILE)
@@ -189,39 +395,144 @@ def show_storage_info():
     info += "**How to Access:**\n"
     info += "• On Hugging Face Spaces: Files are in `/home/user/app/`\n"
     info += "• On Local Machine: Files are in your project folder\n"
-    info += "• Use '📥 Download Knowledge' button to get the JSON backup\n"
+    info += "• Use ' Download Knowledge' button to get the JSON backup\n"
     
     return info
 
 
 def extract_triples(text):
     """
-    Enhanced pattern-based extraction for general document processing.
+    Enhanced extraction for better knowledge extraction from documents.
+    Uses improved pattern matching and entity recognition.
     """
     triples = []
-    print(f"🔍 Extracting triples from {len(text)} characters...")
     
-    # Detect if this is structured data (key-value pairs, tables, etc.)
-    structured_indicators = [
-        'date', 'time', 'name', 'title', 'description', 'address', 'phone', 'email',
-        'number', 'id', 'code', 'reference', 'amount', 'total', 'price', 'cost',
-        'company', 'organization', 'department', 'location', 'status', 'type',
-        'category', 'class', 'group', 'section', 'chapter', 'part', 'item'
-    ]
+    print(f"Extracting knowledge from {len(text)} characters...")
     
-    text_lower = text.lower()
-    is_structured = any(indicator in text_lower for indicator in structured_indicators)
+    # Extract entities (people, organizations, locations, dates)
+    entities = extract_entities(text)
+    for entity in entities:
+        triples.append((entity, 'type', 'entity'))
     
-    if is_structured:
-        print("🔍 Detected structured data (invoice/financial document)")
-        triples.extend(extract_structured_triples(text))
+    # Extract structured data (key-value pairs)
+    triples.extend(extract_structured_triples(text))
     
-    # Always try regular extraction too
+    # Extract regular sentences with improved parsing
+    triples.extend(extract_regular_triples_improved(text, entities))
+    
+    # Also try original extraction as backup for coverage
     triples.extend(extract_regular_triples(text))
     
-    print(f"🔍 Total extracted {len(triples)} triples")
-    for i, (s, p, o) in enumerate(triples[:5]):  # Show first 5
+    # Remove duplicates and validate
+    unique_triples = []
+    for s, p, o in triples:
+        if s and p and o and len(s) > 2 and len(p) > 1 and len(o) > 2:
+            # Clean and validate
+            s = s.strip()[:100]  # Limit length
+            p = p.strip()[:50]
+            o = o.strip()[:200]
+            if (s, p, o) not in unique_triples:
+                unique_triples.append((s, p, o))
+    
+    print(f"Total extracted {len(unique_triples)} unique triples")
+    for i, (s, p, o) in enumerate(unique_triples[:10]):
         print(f"  {i+1}. {s} {p} {o}")
+    
+    return unique_triples
+
+def extract_entities(text):
+    """Extract named entities (people, organizations, locations, etc.)"""
+    entities = []
+    
+    # Capitalized word patterns (likely proper nouns)
+    capitalized_words = re.findall(r'\b[A-Z][a-z]+\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b', text)
+    entities.extend(capitalized_words)
+    
+    # Extract organizations (typical suffixes)
+    org_patterns = [
+        r'([A-Z][a-zA-Z\s]+)\s+(Inc|Ltd|LLC|Corp|Corporation|Company|Co\.|Ltd\.)',
+        r'([A-Z][a-zA-Z\s]+)\s+(University|Institute|Lab|Laboratory)',
+    ]
+    for pattern in org_patterns:
+        matches = re.findall(pattern, text)
+        entities.extend([m[0].strip() for m in matches])
+    
+    # Extract locations (cities, countries)
+    location_keywords = ['in ', 'at ', 'near ', 'from ']
+    for keyword in location_keywords:
+        pattern = f'{keyword}([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)'
+        matches = re.findall(pattern, text)
+        entities.extend(matches)
+    
+    # Extract dates
+    dates = re.findall(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{4}\b', text)
+    entities.extend(dates)
+    
+    # Remove duplicates and clean
+    entities = list(set([e.strip() for e in entities if len(e.strip()) > 3]))
+    return entities[:50]  # Limit to top 50
+
+def extract_regular_triples_improved(text, entities):
+    """Improved extraction with better sentence parsing and entity linking"""
+    triples = []
+    
+    # Split into sentences
+    sentences = re.split(r'[.!?\n]+', text)
+    
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if len(sentence) < 15:  # Skip very short sentences
+            continue
+        
+        # Try improved patterns
+        improved_patterns = [
+            # Subject-Verb-Object patterns
+            (r'([A-Z][a-zA-Z\s]+(?:,\s+[A-Z][a-zA-Z\s]+)*)\s+(is|are|was|were|becomes|represents|means|refers to|denotes)\s+(.+)', 'relates to'),
+            (r'([A-Z][a-zA-Z\s]+)\s+(uses|employs|utilizes|applies)\s+(.+)', 'uses'),
+            (r'([A-Z][a-zA-Z\s]+)\s+(develops|created|designed|implemented)\s+(.+)', 'creates'),
+            (r'([A-Z][a-zA-Z\s]+)\s+(requires|needs|demands)\s+(.+)', 'requires'),
+            (r'([A-Z][a-zA-Z\s]+)\s+(enables|allows|permits)\s+(.+)', 'enables'),
+            (r'([A-Z][a-zA-Z\s]+)\s+(affects|impacts|influences|affects)\s+(.+)', 'affects'),
+            
+            # Research/technical patterns
+            (r'([A-Z][a-zA-Z\s]+)\s+(found|discovered|identified|observed|detected)\s+(.+)', 'discovered'),
+            (r'([A-Z][a-zA-Z\s]+)\s+(studies|analyzes|examines|investigates)\s+(.+)', 'studies'),
+            (r'([A-Z][a-zA-Z\s]+)\s+(proposes|suggests|recommends)\s+(.+)', 'proposes'),
+            (r'([A-Z][a-zA-Z\s]+)\s+(results in|leads to|causes)\s+(.+)', 'causes'),
+            
+            # Relationships
+            (r'([A-Z][a-zA-Z\s]+)\s+(works with|collaborates with|partnered with)\s+(.+)', 'works with'),
+            (r'([A-Z][a-zA-Z\s]+)\s+(located in|based in|situated in)\s+(.+)', 'located in'),
+        ]
+        
+        for pattern, predicate in improved_patterns:
+            match = re.search(pattern, sentence, re.IGNORECASE)
+            if match:
+                groups = match.groups()
+                subject = groups[0].strip() if len(groups) > 0 else ''
+                object_val = groups[-1].strip() if len(groups) > 1 else ''
+                
+                # Clean up
+                subject = re.sub(r'^(the|a|an)\s+', '', subject, flags=re.IGNORECASE).strip()
+                object_val = re.sub(r'^(the|a|an)\s+', '', object_val, flags=re.IGNORECASE).strip()
+                
+                if subject and object_val and len(subject) > 3 and len(object_val) > 3:
+                    triples.append((subject, predicate, object_val))
+                    break
+        
+        # Also extract simple clauses with 'that', 'which', 'who'
+        clause_patterns = [
+            r'([A-Z][a-zA-Z\s]+)\s+which\s+(.+)',
+            r'([A-Z][a-zA-Z\s]+)\s+that\s+(.+)',
+            r'([A-Z][a-zA-Z\s]+)\s+who\s+(.+)',
+        ]
+        for pattern in clause_patterns:
+            match = re.search(pattern, sentence)
+            if match:
+                subject = match.group(1).strip()
+                description = match.group(2).strip()
+                if subject and description and len(subject) > 3 and len(description) > 3:
+                    triples.append((subject, 'has property', description[:150]))
     
     return triples
 
@@ -319,7 +630,7 @@ def extract_structured_triples(text):
                     if clean_key:
                         triples.append((clean_key, 'is', value))
     
-    print(f"🔍 Structured extraction found {len(triples)} triples")
+        print(f"Structured extraction found {len(triples)} triples")
     return triples
 
 def extract_regular_triples(text):
@@ -328,7 +639,7 @@ def extract_regular_triples(text):
     
     # Clean and split text into sentences
     sentences = re.split(r"[.?!\n]", text)
-    print(f"🔍 Found {len(sentences)} sentences for regular extraction")
+    print(f" Found {len(sentences)} sentences for regular extraction")
     
     # English extraction patterns
     patterns = [
@@ -398,7 +709,7 @@ def extract_regular_triples(text):
                     triples.append((subj, pred, obj))
                     break  # Found a match, move to next sentence
     
-    print(f"🔍 Regular extraction found {len(triples)} triples")
+    print(f"Regular extraction found {len(triples)} triples")
     return triples
 
 
@@ -413,7 +724,7 @@ def add_to_graph(text):
     # Automatically save after adding knowledge
     save_result = save_knowledge_graph()
     
-    return f"✅ Added {len(new_triples)} new triples. Total facts stored: {len(graph)}.\n{save_result}"
+    return f" Added {len(new_triples)} new triples. Total facts stored: {len(graph)}.\n{save_result}"
 
 
 def retrieve_context(question, limit=10):
@@ -427,7 +738,7 @@ def retrieve_context(question, limit=10):
     stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'what', 'how', 'when', 'where', 'why', 'who'}
     qwords = [w for w in qwords if w not in stop_words and len(w) > 2]
     
-    print(f"🔍 Searching for: {qwords}")
+    print(f"Searching for: {qwords}")
     
     # Score matches by relevance
     scored_matches = []
@@ -457,7 +768,7 @@ def retrieve_context(question, limit=10):
     # Take top matches
     matches = [match[1] for match in scored_matches[:limit]]
     
-    print(f"🔍 Found {len(matches)} relevant facts")
+    print(f"Found {len(matches)} relevant facts")
     
     if matches:
         result = "**Relevant Knowledge:**\n"
@@ -470,24 +781,27 @@ def retrieve_context(question, limit=10):
 def handle_add_knowledge(text):
     """Handle adding knowledge from text input"""
     if not text or text.strip() == "":
-        return "⚠️ Please enter some text to add to the knowledge graph."
+        return "Please enter some text to extract knowledge from.", ""
     
-    print(f"📝 Adding knowledge from text input: {text[:1000]}...")
+    print(f"Adding knowledge from text input: {text[:1000]}...")
     result = add_to_graph(text)
-    print(f"✅ Knowledge added: {result}")
+    print(f"Knowledge added: {result}")
     
     # Return enhanced status with current knowledge count
     total_facts = len(graph)
-    return f"✅ **Text Knowledge Added Successfully!**\n\n{result}\n\n🧠 **Current Knowledge Base:** {total_facts} total facts"
+    status = f"**Knowledge Extracted Successfully!**\n\n{result}\n\n**Current Knowledge Base:** {total_facts} facts"
+    
+    # Return status and empty string to clear the input box
+    return status, ""
 
 def show_graph_contents():
     """
     Return all current triples as readable text with better formatting.
     """
-    print(f"🔍 Showing graph contents. Total triples: {len(graph)}")
+    print(f"Showing graph contents. Total triples: {len(graph)}")
     
     if len(graph) == 0:
-        return "📊 **Knowledge Graph Status: EMPTY**\n\n🚀 **How to build your knowledge base:**\n1. **Add text directly** - Paste any text in the 'Add Knowledge from Text' box above\n2. **Upload documents** - Use the file upload to process PDF, DOCX, TXT, CSV files\n3. **Extract facts** - The system will automatically extract knowledge from your content\n4. **Build knowledge** - Add more text or files to expand your knowledge base\n5. **Save knowledge** - Use 'Save Knowledge' to persist your data\n\n💡 **Start by adding some text or uploading a document!**"
+        return "**Knowledge Graph Status: EMPTY**\n\n**How to build your knowledge base:**\n1. **Add text directly** - Paste any text in the 'Add Knowledge from Text' box above\n2. **Upload documents** - Use the file upload to process PDF, DOCX, TXT, CSV files\n3. **Extract facts** - The system will automatically extract knowledge from your content\n4. **Build knowledge** - Add more text or files to expand your knowledge base\n5. **Save knowledge** - Use 'Save Knowledge' to persist your data\n\n**Start by adding some text or uploading a document!**"
     
     # Organize facts by subject for better readability
     facts_by_subject = {}
@@ -506,12 +820,12 @@ def show_graph_contents():
         facts_by_subject[subject].append(f"{predicate} {object_val}")
     
     # Create organized display
-    result = f"📊 **Knowledge Graph Overview**\n"
+    result = f"**Knowledge Graph Overview**\n"
     result += f"**Total Facts:** {len(graph)}\n"
     result += f"**Unique Subjects:** {len(facts_by_subject)}\n\n"
     
     # Show facts organized by subject
-    result += "## 📚 **Knowledge by Subject:**\n\n"
+    result += "## **Knowledge by Subject:**\n\n"
     
     for i, (subject, facts) in enumerate(facts_by_subject.items()):
         if i >= 10:  # Limit to first 10 subjects for readability
@@ -525,7 +839,7 @@ def show_graph_contents():
         result += "\n"
     
     # Show all facts in a simple list
-    result += "## 📋 **All Facts:**\n\n"
+    result += "## **All Facts:**\n\n"
     for i, fact in enumerate(all_facts[:20]):  # Show first 20 facts
         result += f"{i+1}. {fact}\n"
     
@@ -533,11 +847,190 @@ def show_graph_contents():
         result += f"\n... and {len(all_facts) - 20} more facts"
     
     # Add search suggestions
-    result += "\n\n## 🔍 **Search Suggestions:**\n"
+    result += "\n\n## **Search Suggestions:**\n"
     result += "Try asking the chatbot about any of these subjects or facts!\n"
     result += "Examples: 'What do you know about [subject]?' or 'Tell me about [fact]'"
     
     return result
+
+def visualize_knowledge_graph():
+    """Create an interactive network visualization of the knowledge graph"""
+    global graph
+    
+    if len(graph) == 0:
+        return "<p>No knowledge in graph. Add some text or upload a document first!</p>"
+    
+    try:
+        print(f"Creating interactive network visualization for {len(graph)} facts...")
+        
+        # Create a NetworkX graph
+        G = nx.Graph()
+        fact_data = {}
+        
+        # Add nodes and edges from RDF triples
+        for s, p, o in graph:
+            subject = str(s).split(':')[-1] if ':' in str(s) else str(s)
+            predicate = str(p).split(':')[-1] if ':' in str(p) else str(p)
+            object_val = str(o)
+            
+            # Truncate for display
+            subject_short = (subject[:30] + "...") if len(subject) > 30 else subject
+            object_short = (object_val[:30] + "...") if len(object_val) > 30 else object_val
+            
+            # Add nodes
+            if subject not in G:
+                G.add_node(subject, display=subject_short, node_type='subject')
+            if object_val not in G:
+                G.add_node(object_val, display=object_short, node_type='object')
+            
+            # Add edge
+            G.add_edge(subject, object_val, label=predicate)
+            fact_data[(subject, object_val)] = f"{subject} {predicate} {object_val}"
+        
+            print(f"NetworkX graph created with {len(G.nodes())} nodes")
+        
+        # Limit to top 40 nodes by degree for better visualization
+        if len(G.nodes()) > 40:
+            degrees = dict(G.degree())
+            top_nodes = sorted(degrees.items(), key=lambda x: x[1], reverse=True)[:40]
+            top_node_names = [node[0] for node in top_nodes]
+            G = G.subgraph(top_node_names)
+            print(f"Showing top 40 nodes out of {len(graph)} total")
+        
+        # Get spring layout
+        pos = nx.spring_layout(G, k=2, iterations=100, seed=42)
+        
+        # Normalize positions to fit in canvas
+        import numpy as np
+        x_positions = [pos[n][0] for n in G.nodes()]
+        y_positions = [pos[n][1] for n in G.nodes()]
+        
+        x_min, x_max = min(x_positions), max(x_positions)
+        y_min, y_max = min(y_positions), max(y_positions)
+        
+        # Scale to fit
+        scale = min(500 / (x_max - x_min), 400 / (y_max - y_min)) if (x_max - x_min) > 0 and (y_max - y_min) > 0 else 50
+        offset_x = 350
+        offset_y = 300
+        
+        # Create SVG visualization
+        svg_elements = []
+        
+        # Add edges first (so they appear behind nodes)
+        for edge in G.edges():
+            x1 = pos[edge[0]][0] * scale + offset_x
+            y1 = pos[edge[0]][1] * scale + offset_y
+            x2 = pos[edge[1]][0] * scale + offset_x
+            y2 = pos[edge[1]][1] * scale + offset_y
+            
+            edge_data = G[edge[0]][edge[1]]
+            label = edge_data.get('label', 'has')
+            fact = fact_data.get((edge[0], edge[1]), f"{edge[0]} {label} {edge[1]}")
+            
+            svg_elements.append(f"""
+            <line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" 
+                  stroke="#999" stroke-width="2" opacity="0.5" 
+                  data-label="{label}"
+                  onmouseover="this.style.stroke='#2196F3'; this.style.strokeWidth='3'; this.style.opacity='0.8'"
+                  onmouseout="this.style.stroke='#999'; this.style.strokeWidth='2'; this.style.opacity='0.5'">
+                <title>{label}</title>
+            </line>
+            """)
+        
+        # Add nodes
+        node_info = []
+        for i, node in enumerate(G.nodes()):
+            x = pos[node][0] * scale + offset_x
+            y = pos[node][1] * scale + offset_y
+            display_name = G.nodes[node].get('display', node)
+            node_type = G.nodes[node].get('node_type', 'unknown')
+            
+            # Color by type
+            if node_type == 'subject':
+                color = '#4CAF50'
+            elif node_type == 'object':
+                color = '#2196F3'
+            else:
+                color = '#546E7A'  # blue-grey
+            
+            # Get neighbors count
+            neighbors = list(G.neighbors(node))
+            neighbor_count = len(neighbors)
+            
+            node_info.append(f"""
+            <circle cx="{x}" cy="{y}" r="{max(40, min(30, neighbor_count * 2 + 20))}" 
+                    fill="{color}" stroke="#fff" stroke-width="2"
+                    data-node="{i}" data-name="{display_name}" data-count="{neighbor_count}"
+                    onmouseover="showNodeInfo(this)"
+                    onmouseout="hideNodeInfo(this)"
+                    onclick="showNodeDetails('{node}', '{display_name}', {neighbor_count})">
+                <title>{display_name} ({neighbor_count} connections)</title>
+            </circle>
+            <text x="{x}" y="{y+6}" text-anchor="middle" font-size="15" font-weight="bold" fill="#000" 
+                  pointer-events="none">{display_name[:15]}</text>
+            """)
+        
+        # Combine all elements
+        svg_content = '\n'.join(svg_elements + node_info)
+        
+        # Create complete HTML with interactive features
+        html = f"""
+        <div style="width: 100%; min-height: 700px; max-height: 800px; background: white; border: 2px solid #ddd; border-radius: 10px; padding: 20px; position: relative; overflow: auto;">
+            <div style="position: absolute; top: 10px; left: 10px; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); z-index: 10;">
+                <h3 style="margin: 0; font-size: 14px;">📊 Knowledge Network</h3>
+                <p style="margin: 5px 0; font-size: 11px; color: #666;">Facts: {len(graph)} | Nodes: {len(G.nodes())} | Links: {len(G.edges())}</p>
+            </div>
+            
+            <div id="nodeInfo" style="position: absolute; top: 10px; right: 10px; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); z-index: 10; display: none; max-width: 250px;">
+                <div id="nodeInfoContent"></div>
+            </div>
+            
+            <div style="position: absolute; bottom: 10px; left: 10px; background: #e3f2fd; padding: 8px; border-radius: 5px; font-size: 11px;">
+                💡 Hover over nodes for details | Click to explore relationships
+            </div>
+            
+            <div style="position: absolute; bottom: 50px; left: 10px; background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); font-size: 10px; min-width: 150px;">
+                <strong>Node Colors:</strong><br>
+                <span style="color: #4CAF50;">●</span> Green = Subjects<br>
+                <span style="color: #2196F3;">●</span> Blue = Objects<br>
+                <span style="color: #546E7A;">●</span> Blue-Grey = Unknown
+            </div>
+            
+            <svg width="100%" height="550" style="border: 1px solid #ddd; border-radius: 5px; background: #f9f9f9; display: block;">
+                {svg_content}
+            </svg>
+            
+            <script>
+                function showNodeInfo(element) {{
+                    var name = element.getAttribute('data-name');
+                    var count = element.getAttribute('data-count');
+                    var infoDiv = document.getElementById('nodeInfo');
+                    var infoContent = document.getElementById('nodeInfoContent');
+                    
+                    infoContent.innerHTML = '<strong>' + name + '</strong><br>Connections: ' + count;
+                    infoDiv.style.display = 'block';
+                }}
+                
+                function hideNodeInfo(element) {{
+                    document.getElementById('nodeInfo').style.display = 'none';
+                }}
+                
+                function showNodeDetails(nodeName, displayName, count) {{
+                    var fullText = nodeName.length > 100 ? nodeName.substring(0, 150) + '...' : nodeName;
+                    alert('📊 Research Entity: ' + displayName + '\\n🔗 Relationships: ' + count + '\\n\\n📝 Full Entity: ' + fullText);
+                }}
+            </script>
+        </div>
+        """
+        
+        print(f" Interactive network visualization created successfully")
+        return html
+        
+    except Exception as e:
+        print(f" Error creating visualization: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"<p style='color: red; padding: 20px;'>Error creating visualization: {e}</p>"
 
 # =========================================================
 #  📁 File Processing Functions
@@ -549,21 +1042,21 @@ def extract_text_from_pdf(file_path):
         with open(file_path, 'rb') as file:
             pdf_reader = PyPDF2.PdfReader(file)
             text = ""
-            print(f"📄 PDF has {len(pdf_reader.pages)} pages")
+            print(f" PDF has {len(pdf_reader.pages)} pages")
             
             for i, page in enumerate(pdf_reader.pages):
                 page_text = page.extract_text()
                 text += page_text + "\n"
-                print(f"📄 Page {i+1}: {len(page_text)} characters")
+                print(f" Page {i+1}: {len(page_text)} characters")
             
             extracted_text = text.strip()
-            print(f"📄 Total extracted: {len(extracted_text)} characters")
-            print(f"📄 First 200 chars: {extracted_text[:200]}...")
+            print(f" Total extracted: {len(extracted_text)} characters")
+            print(f" First 200 chars: {extracted_text[:200]}...")
             
             return extracted_text
     except Exception as e:
         error_msg = f"Error reading PDF: {e}"
-        print(f"❌ {error_msg}")
+        print(f" {error_msg}")
         return error_msg
 
 def extract_text_from_docx(file_path):
@@ -622,31 +1115,31 @@ def process_uploaded_file(file):
     elif file_extension == '.csv':
         extracted_text = extract_text_from_csv(file_path)
     else:
-        return f"❌ Unsupported file type: {file_extension}\n\nSupported formats: PDF, DOCX, TXT, CSV"
+        return f" Unsupported file type: {file_extension}\n\nSupported formats: PDF, DOCX, TXT, CSV"
     
     if extracted_text.startswith("Error"):
-        return f"❌ {extracted_text}"
+        return f" {extracted_text}"
     
     # Store extracted text for debugging
     update_extracted_text(extracted_text)
     
     # Show preview of extracted text
     preview = extracted_text[:300] + "..." if len(extracted_text) > 300 else extracted_text
-    print(f"📄 Extracted text preview: {preview}")
+    print(f" Extracted text preview: {preview}")
     
     # Add extracted text to knowledge graph
     result = add_to_graph(extracted_text)
     
     # Return detailed summary
     file_size = len(extracted_text)
-    return f"✅ Successfully processed {os.path.basename(file_path)}!\n\n📊 File stats:\n• Size: {file_size:,} characters\n• Type: {file_extension.upper()}\n\n📄 Text preview:\n{preview}\n\n{result}"
+    return f" Successfully processed {os.path.basename(file_path)}!\n\n📊 File stats:\n• Size: {file_size:,} characters\n• Type: {file_extension.upper()}\n\n Text preview:\n{preview}\n\n{result}"
 
 def handle_file_upload(files):
     """Handle multiple file uploads and processing"""
     global processed_files
     
     if not files or len(files) == 0:
-        return "⚠️ Please select at least one file to upload."
+        return "Please select at least one file to process."
     
     results = []
     new_processed = []
@@ -666,12 +1159,12 @@ def handle_file_upload(files):
             
             # Check if file was already processed
             if any(f['name'] == file_name for f in processed_files):
-                results.append(f"⏭️ {file_name} - Already processed, skipping")
+                results.append(f"SKIP: {file_name} - Already processed, skipping")
                 continue
             
             # Process the file
-            result = process_uploaded_file(file_path)
-            results.append(f"✅ {file_name} - {result}")
+            result = process_uploaded_file(file)
+            results.append(f"SUCCESS: {file_name} - {result}")
             
             # Add to processed files list
             new_processed.append({
@@ -688,7 +1181,7 @@ def handle_file_upload(files):
             else:
                 file_name = os.path.basename(file.name) if hasattr(file, 'name') else str(file)
             
-            error_msg = f"❌ {file_name} - Error: {e}"
+            error_msg = f"ERROR: {file_name} - Error: {e}"
             print(error_msg)
             results.append(error_msg)
     
@@ -697,11 +1190,11 @@ def handle_file_upload(files):
     
     # Create summary
     total_files = len(files)
-    successful = len([r for r in results if r.startswith("✅")])
-    skipped = len([r for r in results if r.startswith("⏭️")])
-    failed = len([r for r in results if r.startswith("❌")])
+    successful = len([r for r in results if r.startswith("SUCCESS")])
+    skipped = len([r for r in results if r.startswith("SKIP")])
+    failed = len([r for r in results if r.startswith("ERROR")])
     
-    summary = f"📊 **Upload Summary:**\n"
+    summary = f"**Upload Summary:**\n"
     summary += f"• Total files: {total_files}\n"
     summary += f"• Successfully processed: {successful}\n"
     summary += f"• Already processed: {skipped}\n"
@@ -709,10 +1202,11 @@ def handle_file_upload(files):
     summary += f"• Total facts in knowledge base: {len(graph)}\n\n"
     
     # Add individual results
-    summary += "📄 **File Results:**\n"
+    summary += "**File Results:**\n"
     for result in results:
         summary += f"{result}\n"
     
+    # Return single status message
     return summary
 
 def show_processed_files():
@@ -720,9 +1214,9 @@ def show_processed_files():
     global processed_files
     
     if not processed_files:
-        return "📁 **No files processed yet.**\n\n🚀 **Start building your knowledge base:**\n1. Select one or more files (PDF, DOCX, TXT, CSV)\n2. Click 'Process Files' to extract knowledge\n3. View your processed files here\n4. Upload more files to expand your knowledge base!"
+        return "**No files processed yet.**\n\n**Start building your knowledge base:**\n1. Select one or more files (PDF, DOCX, TXT, CSV)\n2. Click 'Process Files' to extract knowledge\n3. View your processed files here\n4. Upload more files to expand your knowledge base!"
     
-    result = f"📁 **Processed Files ({len(processed_files)}):**\n\n"
+    result = f"**Processed Files ({len(processed_files)}):**\n\n"
     
     for i, file_info in enumerate(processed_files, 1):
         result += f"**{i}. {file_info['name']}**\n"
@@ -730,8 +1224,8 @@ def show_processed_files():
         result += f"   • Processed: {file_info['processed_at']}\n"
         result += f"   • Facts added: {file_info.get('facts_added', 'Unknown')}\n\n"
     
-    result += f"🧠 **Total Knowledge Base:** {len(graph)} facts\n"
-    result += f"📊 **Ready for more uploads!**"
+    result += f"**Total Knowledge Base:** {len(graph)} facts\n"
+    result += f"**Ready for more uploads!**"
     
     return result
 
@@ -739,13 +1233,13 @@ def clear_processed_files():
     """Clear the processed files list"""
     global processed_files
     processed_files = []
-    return "🗑️ Processed files list cleared. You can now re-upload previously processed files."
+    return "Processed files list cleared. You can now re-upload previously processed files."
 
 
 def simple_test():
     """Simple test function to verify event handlers work"""
     print("🔔 Simple test function called!")
-    return "✅ Event handler is working! Button clicked successfully!"
+    return " Event handler is working! Button clicked successfully!"
 
 # Global variable to store last extracted text
 last_extracted_text = ""
@@ -758,14 +1252,14 @@ def show_extracted_text():
     global last_extracted_text
     
     if not last_extracted_text:
-        return "📄 No file has been processed yet.\n\nUpload a file and process it to see the extracted text here."
+        return " No file has been processed yet.\n\nUpload a file and process it to see the extracted text here."
     
     # Show first 1000 characters
     preview = last_extracted_text[:1000]
     if len(last_extracted_text) > 1000:
         preview += "\n\n... (truncated, showing first 1000 characters)"
     
-    return f"📄 **Last Extracted Text:**\n\n{preview}"
+    return f" **Last Extracted Text:**\n\n{preview}"
 
 def update_extracted_text(text):
     """Update the global variable with extracted text"""
@@ -1055,7 +1549,7 @@ def generate_general_response(message, context):
 # =========================================================
 #  🤖 3. Reasoning Function (LLM + Symbolic Context)
 # =========================================================
-def respond(message, history, system_message, max_tokens, temperature, top_p):
+def respond(message, history, system_message="You are an intelligent assistant that answers questions based on factual information from a knowledge base. You provide clear, accurate, and helpful responses. When you have relevant information, you share it directly. When you don't have enough information, you clearly state this limitation. You always stay grounded in the facts provided and never hallucinate information.", max_tokens=256, temperature=0.7, top_p=0.9):
     # Step 1: retrieve context from symbolic KB
     context = retrieve_context(message)
 
@@ -1063,8 +1557,7 @@ def respond(message, history, system_message, max_tokens, temperature, top_p):
     try:
         intelligent_response = generate_intelligent_response(message, context, system_message)
         print(f"🧠 Generated intelligent response for: {message[:50]}...")
-        yield intelligent_response
-        return
+        return intelligent_response
     except Exception as e:
         print(f"⚠️ Intelligent response failed: {e}")
         # Fall back to AI model approach
@@ -1132,23 +1625,22 @@ def respond(message, history, system_message, max_tokens, temperature, top_p):
                     return_full_text=False,
                 )
                 
-                print(f"✅ Successfully generated response using: {model}")
-                yield result.strip()
-                return  # Success! Exit the function
+                print(f" Successfully generated response using: {model}")
+                return result.strip()
                 
             except Exception as model_error:
-                print(f"❌ Model {model} failed: {model_error}")
+                print(f" Model {model} failed: {model_error}")
                 continue  # Try next model
         
         # If all models failed, provide intelligent fallback
         print("⚠️ All models failed, providing intelligent fallback")
         fallback_response = generate_intelligent_response(message, context, system_message)
-        yield fallback_response
+        return fallback_response
         
     except Exception as e:
         # Ultimate fallback - even if everything fails
         print(f"💥 Complete failure: {e}")
-        yield f"🤖 I'm having trouble connecting to AI models right now, but I can still help!\n\nBased on your knowledge graph, I found these relevant facts:\n{context}\n\nFor your question '{message}', I'd suggest checking the facts above. Try adding more information to the knowledge graph or check back later when the AI models are working properly."
+        return f"🤖 I'm having trouble connecting to AI models right now, but I can still help!\n\nBased on your knowledge graph, I found these relevant facts:\n{context}\n\nFor your question '{message}', I'd suggest checking the facts above. Try adding more information to the knowledge graph or check back later when the AI models are working properly."
 
 def generate_mock_response(message, context, system_message):
     """Generate a helpful response even when AI models fail"""
@@ -1172,95 +1664,385 @@ def generate_mock_response(message, context, system_message):
 #  💬 3. Gradio Interface Definition
 # =========================================================
 
+def save_and_backup():
+    """Save knowledge and create backup"""
+    save_result = save_knowledge_graph()
+    file_path, status = create_and_get_backup()
+    return file_path, status
+
 # =========================================================
 #  🧩 4. Interface Layout
 # =========================================================
-with gr.Blocks(title="🧠 Reasoning Researcher Prototype") as demo:
-    gr.Markdown("## 🧠 Reasoning Researcher\nA neurosymbolic assistant that combines a small knowledge graph with language reasoning.")
+with gr.Blocks(title="Research Brain") as demo:
+    # Add custom CSS for blue-grey theme - remove all orange!
+    demo.css = """
+    <style>
+        /* Override all button colors - remove orange completely */
+        button { 
+            background-color: #546E7A !important; 
+            border-color: #546E7A !important; 
+            color: white !important;
+        }
+        
+        button.primary { 
+            background-color: #546E7A !important; 
+            border-color: #546E7A !important; 
+            color: white !important;
+        }
+        
+        button.primary:hover,
+        button:hover { 
+            background-color: #455A64 !important; 
+            border-color: #455A64 !important; 
+        }
+        
+        button.secondary { 
+            background-color: #78909C !important; 
+            border-color: #78909C !important; 
+            color: white !important;
+        }
+        
+        button.secondary:hover { 
+            background-color: #607D8B !important; 
+            border-color: #607D8B !important; 
+        }
+        
+        button:focus,
+        button.primary:focus { 
+            border-color: #546E7A !important; 
+            box-shadow: 0 0 0 2px rgba(84, 110, 122, 0.2) !important; 
+        }
+        
+        /* Make white boxes light grey */
+        textarea, 
+        input[type="text"],
+        .wrap,
+        .output-text,
+        .panel,
+        .chatbot,
+        .chat,
+        .message {
+            background-color: #F5F5F5 !important;
+        }
+        
+        textarea:focus,
+        input[type="text"]:focus,
+        textarea:focus {
+            background-color: #FFFFFF !important;
+            border-color: #546E7A !important;
+        }
+        
+        /* Chat interface styling */
+        .chatbot-message,
+        .conversation-box,
+        [class*="chat"],
+        [class*="message"] {
+            background-color: #F8F8F8 !important;
+        }
+        
+        /* File upload drag area - ALWAYS light grey background */
+        [class*="file-drop"],
+        [class*="upload"],
+        input[type="file"],
+        .gradio-file,
+        .gradio-file [class*="component"],
+        [class*="file-drop"]:hover,
+        [class*="upload"]:hover,
+        [class*="file-drop"]:focus,
+        [class*="upload"]:focus,
+        [class*="file-drop"]:active,
+        [class*="upload"]:active,
+        div[role="button"],
+        [data-testid="file-upload"],
+        [class*="drag"],
+        div[class*="wrap"][class*="file"],
+        div[class*="component"][class*="file"] {
+            background-color: #F5F5F5 !important;
+            background: #F5F5F5 !important;
+            border-color: #546E7A !important;
+        }
+        
+        /* Force light grey background for Gradio file components */
+        div[class*="wrap"].gradio-file,
+        div[class*="wrap"][class*="file"],
+        [class*="wrap"][class*="gradio"] {
+            background-color: #F5F5F5 !important;
+            background: #F5F5F5 !important;
+        }
+        
+        [class*="file-drop"]:hover *,
+        [class*="upload"]:hover *,
+        [class*="file-drop"]:focus *,
+        [class*="upload"]:focus * {
+            background-color: #F5F5F5 !important;
+        }
+        
+        /* Make download file component compact */
+        .gradio-file .component {
+            min-height: 60px !important;
+            max-height: 70px !important;
+        }
+        
+        .gradio-file button {
+            padding: 8px !important;
+            font-size: 12px !important;
+        }
+        
+        /* Specifically target Gradio file upload components */
+        .upload-component,
+        [class*="component"],
+        .rounded,
+        .border,
+        div.wrap,
+        div[class*="wrap"] {
+            transition: none !important;
+        }
+        
+        .upload-component:hover,
+        [class*="component"]:hover,
+        div.wrap:hover,
+        div[class*="wrap"]:hover {
+            background-color: #F5F5F5 !important;
+            border-color: #546E7A !important;
+        }
+        
+        /* Target all child elements within file upload */
+        [class*="file"]:hover,
+        [class*="File"]:hover,
+        [id*="upload"]:hover,
+        [id*="Upload"]:hover {
+            background-color: #F5F5F5 !important;
+        }
+        
+        /* Override any SVG or icon colors */
+        [class*="file"] svg:hover,
+        [class*="upload"] svg:hover {
+            fill: #546E7A !important;
+        }
+        
+        /* Nuclear option - target EVERYTHING that could be file upload */
+        div[id*="file"],
+        div[id*="File"],
+        div[id*="upload"],
+        div[id*="Upload"],
+        .file,
+        div.file,
+        div.upload,
+        .gradio-file *,
+        div.w-full *,
+        div[class*="wrap"] *,
+        div[class*="wrap"][class*="file"] * {
+            background: #F5F5F5 !important;
+            background-color: #F5F5F5 !important;
+        }
+        
+        /* Remove hover transitions completely for file upload */
+        div:hover[class*="file"],
+        div:hover[class*="upload"],
+        div:hover[id*="file"],
+        div:hover[id*="upload"] {
+            background: #F5F5F5 !important;
+            background-color: #F5F5F5 !important;
+        }
+        
+        /* Force no background change on hover for upload areas specifically */
+        div[class*="upload"]:hover,
+        span[class*="upload"]:hover,
+        button[class*="upload"]:hover,
+        form[class*="upload"]:hover,
+        div[role="button"][class*="file"]:hover,
+        div[class*="wrap"][class*="file"]:hover {
+            background-color: #F5F5F5 !important;
+            border-color: #546E7A !important;
+            opacity: 1 !important;
+        }
+        
+        /* Disable hover animation for file upload */
+        div[class*="file"]:hover,
+        div[class*="upload"]:hover {
+            transform: none !important;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1) !important;
+        }
+        
+        /* Remove any orange/red accent colors */
+        * {
+            --tw-gradient-from: transparent !important;
+            --tw-gradient-to: transparent !important;
+        }
+        
+        /* Override any Gradio default colors */
+        .gradio-container,
+        .gradio-button-primary,
+        button[class*="primary"],
+        button[class*="button"] {
+            background-color: #546E7A !important;
+            border-color: #546E7A !important;
+            color: white !important;
+        }
+        
+        button[class*="primary"]:hover,
+        button[class*="button"]:hover {
+            background-color: #455A64 !important;
+            border-color: #455A64 !important;
+        }
+        
+        /* Style chat send button - blue-grey instead of grey */
+        button[aria-label*="send"],
+        [role="button"][aria-label*="Send"],
+        button[class*="send-button"],
+        button[aria-label*="Send message"],
+        svg[class*="send"],
+        button svg,
+        .chat button svg {
+            background-color: #546E7A !important;
+            color: white !important;
+        }
+        
+        /* Remove grey container around chat send button */
+        button[aria-label*="send"],
+        [role="button"][aria-label*="Send"],
+        .chat input[type="submit"],
+        .chat button {
+            border: none !important;
+            box-shadow: none !important;
+        }
+        
+        /* Style the circular send button background */
+        button[aria-label*="send"],
+        button[aria-label*="Send message"] {
+            background-color: #546E7A !important;
+            border: none !important;
+        }
+        
+        button[aria-label*="send"]:hover,
+        button[aria-label*="Send message"]:hover {
+            background-color: #455A64 !important;
+        }
+        
+        /* Make Save Knowledge button compact */
+        button[data-testid*="save"],
+        .gradio-button {
+            max-width: 200px !important;
+        }
+    </style>
+    
+    <script>
+    // Force file upload area to stay light grey
+    setInterval(function() {
+        var fileElements = document.querySelectorAll('[class*="file"], [class*="upload"], [id*="file"], [id*="upload"], input[type="file"]');
+        fileElements.forEach(function(el) {
+            var parent = el.closest('div');
+            if (parent) {
+                parent.style.backgroundColor = '#F5F5F5';
+                parent.style.background = '#F5F5F5';
+            }
+        });
+        
+        // Style chat send button with blue-grey
+        var chatButtons = document.querySelectorAll('button[aria-label*="send"], button[aria-label*="Send"], button[class*="send-button"]');
+        chatButtons.forEach(function(btn) {
+            btn.style.border = 'none';
+            btn.style.background = '#546E7A';
+            btn.style.backgroundColor = '#546E7A';
+            btn.style.color = 'white';
+            btn.style.boxShadow = 'none';
+            
+            // Style on hover
+            if (!btn.hasAttribute('data-styled')) {
+                btn.setAttribute('data-styled', 'true');
+                btn.addEventListener('mouseenter', function() {
+                    this.style.backgroundColor = '#455A64';
+                });
+                btn.addEventListener('mouseleave', function() {
+                    this.style.backgroundColor = '#546E7A';
+                });
+            }
+        });
+    }, 100);
+    </script>
+    """
+    
+    gr.Markdown("## Research Brain\nBuild and explore knowledge graphs from research documents, publications, and datasets.")
 
     with gr.Row():
-        with gr.Column(scale=1):
-            gr.Markdown("### 📝 Add Knowledge")
-            
-            # Text input
-            upload_box = gr.Textbox(
-                lines=6,
-                placeholder="Paste any text here to extract knowledge and add to your knowledge base. Examples: articles, notes, descriptions, reports, etc.",
-                label="Add Knowledge from Text",
-            )
-            add_button = gr.Button("Add to Knowledge Graph", variant="primary")
-            
-            gr.Markdown("### 📁 Upload Files")
-            
-            # File upload
-            file_upload = gr.File(
-                label="Upload Knowledge Files (Multiple files supported)",
-                file_types=[".pdf", ".docx", ".txt", ".csv"],
-                file_count="multiple"
-            )
-            upload_file_button = gr.Button("Process Files", variant="secondary")
-            show_processed_button = gr.Button("📁 Show Processed Files", variant="secondary")
-            clear_processed_button = gr.Button("🗑️ Clear File History", variant="secondary")
-            file_status = gr.Textbox(label="File Processing Status", interactive=False)
-            
-            gr.Markdown("### 🧠 Knowledge Graph")
-            
-            # Graph management
-            simple_test_button = gr.Button("🔔 Simple Test", variant="secondary")
-            show_button = gr.Button("Show Knowledge Graph", variant="secondary")
-            save_button = gr.Button("💾 Save Knowledge", variant="secondary")
-            load_button = gr.Button("📂 Load Knowledge", variant="secondary")
-            storage_info_button = gr.Button("📁 Storage Info", variant="secondary")
-            extract_debug_button = gr.Button("🔍 Debug Extraction", variant="secondary")
-            
-            gr.Markdown("### 🗑️ Delete Knowledge")
-            
-            # Deletion options
-            delete_keyword_input = gr.Textbox(
-                placeholder="Enter keyword to delete facts containing it...",
-                label="Delete by Keyword",
-                lines=1
-            )
-            delete_keyword_button = gr.Button("🗑️ Delete by Keyword", variant="stop")
-            delete_recent_button = gr.Button("🗑️ Delete Last 5 Facts", variant="stop")
-            delete_all_button = gr.Button("⚠️ DELETE ALL KNOWLEDGE", variant="stop")
-            
-            download_button = gr.File(label="📥 Download Knowledge (JSON + Text)", value=get_knowledge_file)
-            graph_info = gr.Textbox(label="Status / Graph Summary", interactive=False)
-            graph_view = gr.Textbox(label="Knowledge Graph Contents", lines=15)
-            
         with gr.Column(scale=2):
-            gr.Markdown("### 💬 Chat with AI")
+            with gr.Group():
+                gr.Markdown("### Data Ingestion")
+                # Text input
+                upload_box = gr.Textbox(
+                    lines=5,
+                    placeholder="Paste research text, abstracts, findings, or any content to extract knowledge...",
+                    label="Add Research Content",
+                )
+                add_button = gr.Button("Extract Knowledge", variant="primary")
+                
+                # File upload
+                file_upload = gr.File(
+                    label="Upload Research Documents (PDF, DOCX, TXT, CSV)",
+                    file_types=[".pdf", ".docx", ".txt", ".csv"],
+                    file_count="multiple"
+                )
+                upload_file_button = gr.Button("Process Documents", variant="primary")
+            
+            with gr.Group():
+                with gr.Row():
+                    visualize_button = gr.Button("Visualize Knowledge Network", variant="primary", size="lg")
+                graph_plot = gr.HTML(label="Knowledge Graph Network", visible=True, min_height=500)
+        
+        with gr.Column(scale=1):
+            gr.Markdown("### Research Assistant")
             chatbot = gr.ChatInterface(
-                respond,
-                type="messages",
-                additional_inputs=[
-                    gr.Textbox(
-                        value="You are an intelligent assistant that answers questions based on factual information from a knowledge base. You provide clear, accurate, and helpful responses. When you have relevant information, you share it directly. When you don't have enough information, you clearly state this limitation. You always stay grounded in the facts provided and never hallucinate information.",
-                        label="System message",
-                    ),
-                    gr.Slider(minimum=64, maximum=1024, value=256, step=16, label="Max new tokens"),
-                    gr.Slider(minimum=0.1, maximum=2.0, value=0.7, step=0.1, label="Temperature"),
-                    gr.Slider(minimum=0.1, maximum=1.0, value=0.9, step=0.05, label="Top-p"),
-                ],
+                fn=lambda message, history: respond(message, history),
+                title="Query Knowledge Base",
+                description="Ask questions about your research data. Explore findings, relationships, and insights.",
+                examples=[
+                    "What are the key research findings?",
+                    "Summarize the methodologies",
+                    "What relationships exist in the data?",
+                    "What are the important timelines?",
+                    "What datasets were used?"
+                ]
             )
             
-    # Event handlers
-    simple_test_button.click(fn=simple_test, inputs=None, outputs=graph_info)
-    add_button.click(fn=handle_add_knowledge, inputs=upload_box, outputs=graph_info)
-    upload_file_button.click(fn=handle_file_upload, inputs=file_upload, outputs=file_status)
-    show_processed_button.click(fn=show_processed_files, inputs=None, outputs=file_status)
-    clear_processed_button.click(fn=clear_processed_files, inputs=None, outputs=file_status)
-    show_button.click(fn=show_graph_contents, inputs=None, outputs=graph_view)
-    save_button.click(fn=save_knowledge_graph, inputs=None, outputs=graph_info)
-    load_button.click(fn=load_knowledge_graph, inputs=None, outputs=graph_info)
-    storage_info_button.click(fn=show_storage_info, inputs=None, outputs=graph_view)
-    extract_debug_button.click(fn=show_extracted_text, inputs=None, outputs=graph_view)
+            with gr.Group():
+                gr.Markdown("### Knowledge Base Management")
+                with gr.Row():
+                    save_button = gr.Button("Save Knowledge", variant="secondary")
+                download_button = gr.File(label="Download Backup", visible=True)
+                graph_info = gr.Textbox(label="Status", interactive=False, visible=True, lines=1, max_lines=2)
+                with gr.Row():
+                    show_button = gr.Button("View Knowledge Base", variant="secondary")
+                graph_view = gr.Textbox(label="Knowledge Contents", visible=True, lines=3, max_lines=4)
+            
+    # Event handlers for simplified UI
+    add_button.click(
+        fn=handle_add_knowledge, 
+        inputs=upload_box, 
+        outputs=[graph_info, upload_box]
+    )
     
-    # Deletion event handlers
-    delete_keyword_button.click(fn=delete_knowledge_by_keyword, inputs=delete_keyword_input, outputs=graph_info)
-    delete_recent_button.click(fn=delete_recent_knowledge, inputs=None, outputs=graph_info)
-    delete_all_button.click(fn=delete_all_knowledge, inputs=None, outputs=graph_info)
+    upload_file_button.click(
+        fn=handle_file_upload, 
+        inputs=file_upload, 
+        outputs=graph_info
+    )
+    
+    show_button.click(
+        fn=show_graph_contents, 
+        inputs=None, 
+        outputs=graph_view
+    )
+    
+    visualize_button.click(
+        fn=visualize_knowledge_graph,
+        inputs=None,
+        outputs=graph_plot
+    )
+    
+    save_button.click(
+        fn=save_and_backup,
+        outputs=[download_button, graph_info]
+    )
 
 # =========================================================
 #  🚀 5. Initialize Sample Data and Launch
@@ -1268,8 +2050,37 @@ with gr.Blocks(title="🧠 Reasoning Researcher Prototype") as demo:
 
 
 if __name__ == "__main__":
-    # Initialize empty knowledge graph - no sample data
-    # Knowledge will be built purely from uploaded documents
+    # Fix Windows console encoding issue with emojis
+    import sys
+    import io
+    if sys.stdout.encoding != 'utf-8':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    if sys.stderr.encoding != 'utf-8':
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    
+    # Initialize knowledge graph and load existing data
+    print("Initializing knowledge graph...")
     graph = rdflib.Graph()
-    print("📊 Knowledge graph initialized (empty) - ready for document uploads")
-    demo.launch()
+    load_result = load_knowledge_graph()
+    print(f"Startup: {load_result}")
+    print(f"Knowledge graph ready with {len(graph)} facts")
+    
+    # Launch the Gradio app
+    # For Hugging Face Spaces, the platform handles the launch automatically
+    # If running directly, we provide explicit parameters
+    print("Launching Gradio application...")
+    
+    # Check if we're in Hugging Face Spaces (has SPACE_ID env var)
+    is_hf_space = os.getenv("SPACE_ID") is not None
+    
+    if is_hf_space:
+        # On Hugging Face Spaces, just launch with defaults
+        # The platform will handle port binding
+        print("Detected Hugging Face Spaces environment")
+        demo.launch(server_name="0.0.0.0")
+    else:
+        # Local development - use explicit settings
+        port = int(os.getenv("PORT", 7860))
+        print(f"Local development mode - starting on http://127.0.0.1:{port}")
+        # Bind to loopback so browsers can open localhost directly
+        demo.launch(server_name="127.0.0.1", server_port=port, share=False)
