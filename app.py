@@ -854,7 +854,7 @@ def show_graph_contents():
     return result
 
 def list_facts_for_editing():
-    """Return a list of facts with IDs for selection and build index"""
+    """Return a dropdown update with choices and build index"""
     global fact_index
     fact_index = {}
     options = []
@@ -866,7 +866,7 @@ def list_facts_for_editing():
         options.append(label)
         fact_index[i] = (s, p, o)
     status = f"Loaded {len(options)} facts for editing"
-    return options, status
+    return gr.update(choices=options, value=None), status
 
 def load_fact_fields(fact_label):
     """Given a dropdown label, return subject, predicate, object fields"""
