@@ -1,0 +1,6 @@
+gradio
+rdflib
+huggingface_hub
+PyPDF2
+python-docx
+pandas
