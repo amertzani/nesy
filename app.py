@@ -905,8 +905,8 @@ def update_fact(fact_label, new_subject, new_predicate, new_object):
         # Persist
         save_knowledge_graph()
         # Refresh list
-        options, _ = list_facts_for_editing()
-        return "✅ Fact updated and saved.", gr.update(choices=options)
+        options_update, _ = list_facts_for_editing()
+        return "✅ Fact updated and saved.", options_update
     except Exception as e:
         return f"❌ Update failed: {e}", gr.update()
 
@@ -921,8 +921,8 @@ def delete_fact(fact_label):
             return "⚠️ Fact not found. Click Refresh Facts and try again.", gr.update()
         graph.remove(old)
         save_knowledge_graph()
-        options, _ = list_facts_for_editing()
-        return "🗑️ Fact deleted.", gr.update(choices=options, value=None)
+        options_update, _ = list_facts_for_editing()
+        return "🗑️ Fact deleted.", options_update
     except Exception as e:
         return f"❌ Delete failed: {e}", gr.update()
 
@@ -2091,7 +2091,7 @@ with gr.Blocks(title="Research Brain") as demo:
                 gr.Markdown("### Edit or Remove Facts")
                 with gr.Row():
                     refresh_facts_btn = gr.Button("Refresh Facts", variant="secondary")
-                fact_selector = gr.Dropdown(label="Select Fact", choices=[], interactive=True)
+                fact_selector = gr.Dropdown(label="Select Fact", choices=[], interactive=True, multiselect=False)
                 with gr.Row():
                     subj_box = gr.Textbox(label="Subject")
                     pred_box = gr.Textbox(label="Predicate")
