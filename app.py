@@ -15,6 +15,11 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 import plotly.graph_objects as go
 import plotly.express as px
+from file_processing import handle_file_upload as fp_handle_file_upload
+from knowledge import show_graph_contents as kb_show_graph_contents
+from knowledge import visualize_knowledge_graph as kb_visualize_knowledge_graph
+from knowledge import import_knowledge_from_json_file as kb_import_json
+from responses import respond as rqa_respond
 
 # ==========================================================
 #  🧠 1. Global Knowledge Graph with Persistent Storage
@@ -2127,7 +2132,7 @@ with gr.Blocks(title="Research Brain") as demo:
         with gr.Column(scale=1):
             gr.Markdown("### Research Assistant")
             chatbot = gr.ChatInterface(
-                fn=lambda message, history: respond(message, history),
+                fn=lambda message, history: rqa_respond(message, history),
                 title="Query Knowledge Base",
                 description="Ask questions about your research data. Explore findings, relationships, and insights.",
                 examples=[
@@ -2177,19 +2182,19 @@ with gr.Blocks(title="Research Brain") as demo:
     )
     
     upload_file_button.click(
-        fn=handle_file_upload, 
+        fn=fp_handle_file_upload, 
         inputs=file_upload, 
         outputs=graph_info
     )
     
     show_button.click(
-        fn=show_graph_contents, 
+        fn=kb_show_graph_contents, 
         inputs=None, 
         outputs=graph_view
     )
     
     visualize_button.click(
-        fn=visualize_knowledge_graph,
+        fn=kb_visualize_knowledge_graph,
         inputs=None,
         outputs=graph_plot
     )
@@ -2200,7 +2205,7 @@ with gr.Blocks(title="Research Brain") as demo:
     )
 
     import_json_button.click(
-        fn=handle_import_json,
+        fn=kb_import_json,
         inputs=json_upload,
         outputs=graph_info
     )
