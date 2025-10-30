@@ -32,6 +32,62 @@ graph = rdflib.Graph()
 # Mapping of fact IDs to triples for editing operations
 fact_index = {}
 
+def import_knowledge_from_json_file(file):
+    """Import knowledge facts from a JSON file (backup format or simple list).
+    Supported formats:
+    - { "metadata": {...}, "facts": [{subject,predicate,object,...}, ...] }
+    - { "facts": [{subject,predicate,object}, ...] }
+    - [ {subject,predicate,object}, ... ]
+    Returns a status message about counts imported.
+    """
+    try:
+        if file is None:
+            return "⚠️ No file selected."
+
+        file_path = file.name if hasattr(file, 'name') else str(file)
+        if not os.path.exists(file_path):
+            return f"⚠️ File not found: {file_path}"
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        # Normalize to list of fact dicts
+        if isinstance(data, dict) and 'facts' in data:
+            facts = data['facts']
+        elif isinstance(data, list):
+            facts = data
+        else:
+            return "❌ Unsupported JSON structure. Expect an object with 'facts' or a list of facts."
+
+        added = 0
+        skipped = 0
+        for fact in facts:
+            try:
+                subject = fact.get('subject') or fact.get('full_subject')
+                predicate = fact.get('predicate') or fact.get('full_predicate')
+                obj = fact.get('object') or fact.get('full_object')
+                if not subject or not predicate or obj is None:
+                    skipped += 1
+                    continue
+                # Use short forms; ensure URNs
+                s_ref = rdflib.URIRef(subject if str(subject).startswith('urn:') else f"urn:{subject}")
+                p_ref = rdflib.URIRef(predicate if str(predicate).startswith('urn:') else f"urn:{predicate}")
+                o_lit = rdflib.Literal(obj)
+                graph.add((s_ref, p_ref, o_lit))
+                added += 1
+            except Exception:
+                skipped += 1
+
+        save_knowledge_graph()
+        return f"✅ Imported {added} facts. Skipped {skipped}. Total facts: {len(graph)}."
+    except Exception as e:
+        return f"❌ Import failed: {e}"
+
+def handle_import_json(file):
+    """Gradio handler: import JSON knowledge and report status"""
+    status = import_knowledge_from_json_file(file)
+    return status
+
 def save_knowledge_graph():
     """Save the knowledge graph to persistent storage"""
     try:
@@ -2083,6 +2139,9 @@ with gr.Blocks(title="Research Brain") as demo:
                     save_button = gr.Button("Save Knowledge", variant="secondary")
                 download_button = gr.File(label="Download Backup", visible=True)
                 graph_info = gr.Textbox(label="Status", interactive=False, visible=True, lines=1, max_lines=2)
+                # JSON import controls
+                json_upload = gr.File(label="Upload Knowledge JSON", file_types=[".json"], file_count="single")
+                import_json_button = gr.Button("Import Knowledge JSON", variant="secondary")
                 with gr.Row():
                     show_button = gr.Button("View Knowledge Base", variant="secondary")
                 graph_view = gr.Textbox(label="Knowledge Contents", visible=True, lines=3, max_lines=4)
@@ -2129,6 +2188,12 @@ with gr.Blocks(title="Research Brain") as demo:
     save_button.click(
         fn=save_and_backup,
         outputs=[download_button, graph_info]
+    )
+
+    import_json_button.click(
+        fn=handle_import_json,
+        inputs=json_upload,
+        outputs=graph_info
     )
 
     # Fact editor events
