@@ -1403,6 +1403,12 @@ def delete_all_knowledge():
     save_knowledge_graph()  # Save the empty graph
     return f"🗑️ Deleted all {count} facts from the knowledge graph. Graph is now empty."
 
+def handle_delete_all(confirm_text):
+    """Validate confirmation and delete all knowledge"""
+    if not confirm_text or confirm_text.strip().upper() != "DELETE":
+        return "⚠️ Type DELETE to confirm full deletion."
+    return delete_all_knowledge()
+
 def delete_knowledge_by_keyword(keyword):
     """Delete knowledge containing a specific keyword"""
     global graph
@@ -2142,6 +2148,9 @@ with gr.Blocks(title="Research Brain") as demo:
                 # JSON import controls
                 json_upload = gr.File(label="Upload Knowledge JSON", file_types=[".json"], file_count="single")
                 import_json_button = gr.Button("Import Knowledge JSON", variant="secondary")
+                # Delete all knowledge controls
+                delete_confirm = gr.Textbox(label="Type DELETE to confirm", placeholder="DELETE")
+                delete_all_btn = gr.Button("Delete All Knowledge", variant="secondary")
                 with gr.Row():
                     show_button = gr.Button("View Knowledge Base", variant="secondary")
                 graph_view = gr.Textbox(label="Knowledge Contents", visible=True, lines=3, max_lines=4)
@@ -2193,6 +2202,12 @@ with gr.Blocks(title="Research Brain") as demo:
     import_json_button.click(
         fn=handle_import_json,
         inputs=json_upload,
+        outputs=graph_info
+    )
+
+    delete_all_btn.click(
+        fn=handle_delete_all,
+        inputs=delete_confirm,
         outputs=graph_info
     )
 
