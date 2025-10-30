@@ -1816,6 +1816,10 @@ def save_and_backup():
     kb_create_comprehensive_backup()
     return BACKUP_FILE, save_result
 
+def refresh_visualization(*args):
+    """Wrapper to refresh visualization, ignoring any arguments from previous handlers"""
+    return kb_visualize_knowledge_graph()
+
 # =========================================================
 #  🧩 4. Interface Layout
 # =========================================================
@@ -2174,8 +2178,8 @@ with gr.Blocks(title="Research Brain") as demo:
     # Auto-load visualization on page load
     demo.load(
         fn=kb_visualize_knowledge_graph,
-        inputs=None,
-        outputs=graph_plot
+        inputs=[],
+        outputs=[graph_plot]
     )
     
     # Event handlers for simplified UI
@@ -2184,9 +2188,8 @@ with gr.Blocks(title="Research Brain") as demo:
         inputs=upload_box, 
         outputs=[graph_info, upload_box]
     ).then(
-        fn=kb_visualize_knowledge_graph,
-        inputs=None,
-        outputs=graph_plot
+        fn=refresh_visualization,
+        outputs=[graph_plot]
     )
     
     upload_file_button.click(
@@ -2194,24 +2197,22 @@ with gr.Blocks(title="Research Brain") as demo:
         inputs=file_upload, 
         outputs=graph_info
     ).then(
-        fn=kb_visualize_knowledge_graph,
-        inputs=None,
-        outputs=graph_plot
+        fn=refresh_visualization,
+        outputs=[graph_plot]
     )
     
     show_button.click(
         fn=kb_show_graph_contents, 
-        inputs=None, 
-        outputs=graph_view
+        inputs=[], 
+        outputs=[graph_view]
     )
     
     save_button.click(
         fn=save_and_backup,
         outputs=[download_button, graph_info]
     ).then(
-        fn=kb_visualize_knowledge_graph,
-        inputs=None,
-        outputs=graph_plot
+        fn=refresh_visualization,
+        outputs=[graph_plot]
     )
 
     import_json_button.click(
@@ -2219,9 +2220,8 @@ with gr.Blocks(title="Research Brain") as demo:
         inputs=json_upload,
         outputs=graph_info
     ).then(
-        fn=kb_visualize_knowledge_graph,
-        inputs=None,
-        outputs=graph_plot
+        fn=refresh_visualization,
+        outputs=[graph_plot]
     )
 
     delete_all_btn.click(
@@ -2229,9 +2229,8 @@ with gr.Blocks(title="Research Brain") as demo:
         inputs=delete_confirm,
         outputs=graph_info
     ).then(
-        fn=kb_visualize_knowledge_graph,
-        inputs=None,
-        outputs=graph_plot
+        fn=refresh_visualization,
+        outputs=[graph_plot]
     )
 
     # Fact editor events
@@ -2249,18 +2248,16 @@ with gr.Blocks(title="Research Brain") as demo:
         inputs=[fact_selector, subj_box, pred_box, obj_box],
         outputs=[fact_edit_status, fact_selector]
     ).then(
-        fn=kb_visualize_knowledge_graph,
-        inputs=None,
-        outputs=graph_plot
+        fn=refresh_visualization,
+        outputs=[graph_plot]
     )
     delete_fact_btn.click(
         fn=delete_fact,
         inputs=fact_selector,
         outputs=[fact_edit_status, fact_selector]
     ).then(
-        fn=kb_visualize_knowledge_graph,
-        inputs=None,
-        outputs=graph_plot
+        fn=refresh_visualization,
+        outputs=[graph_plot]
     )
 
 # =========================================================
