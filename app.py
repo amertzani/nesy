@@ -16,9 +16,17 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 import plotly.graph_objects as go
 import plotly.express as px
 from file_processing import handle_file_upload as fp_handle_file_upload
-from knowledge import show_graph_contents as kb_show_graph_contents
-from knowledge import visualize_knowledge_graph as kb_visualize_knowledge_graph
-from knowledge import import_knowledge_from_json_file as kb_import_json
+from knowledge import (
+    show_graph_contents as kb_show_graph_contents,
+    visualize_knowledge_graph as kb_visualize_knowledge_graph,
+    import_knowledge_from_json_file as kb_import_json,
+    save_knowledge_graph as kb_save_knowledge_graph,
+    load_knowledge_graph as kb_load_knowledge_graph,
+    graph as kb_graph,
+    delete_all_knowledge as kb_delete_all_knowledge,
+    add_to_graph as kb_add_to_graph
+)
+from knowledge import create_comprehensive_backup as kb_create_comprehensive_backup, BACKUP_FILE
 from responses import respond as rqa_respond
 
 # ==========================================================
@@ -848,11 +856,11 @@ def handle_add_knowledge(text):
         return "Please enter some text to extract knowledge from.", ""
     
     print(f"Adding knowledge from text input: {text[:1000]}...")
-    result = add_to_graph(text)
+    result = kb_add_to_graph(text)
     print(f"Knowledge added: {result}")
     
     # Return enhanced status with current knowledge count
-    total_facts = len(graph)
+    total_facts = len(kb_graph)
     status = f"**Knowledge Extracted Successfully!**\n\n{result}\n\n**Current Knowledge Base:** {total_facts} facts"
     
     # Return status and empty string to clear the input box
@@ -916,10 +924,9 @@ def show_graph_contents():
 
 def list_facts_for_editing():
     """Return a dropdown update with choices and build index"""
-    global fact_index
-    fact_index = {}
+    from knowledge import fact_index
     options = []
-    for i, (s, p, o) in enumerate(list(graph), start=1):
+    for i, (s, p, o) in enumerate(list(kb_graph), start=1):
         subject = str(s).split(':')[-1] if ':' in str(s) else str(s)
         predicate = str(p).split(':')[-1] if ':' in str(p) else str(p)
         object_val = str(o)
@@ -931,23 +938,21 @@ def list_facts_for_editing():
 
 def load_fact_fields(fact_label):
     """Given a dropdown label, return subject, predicate, object fields"""
+    from knowledge import load_fact_by_label
     if not fact_label:
         return "", "", ""
-    try:
-        fact_id_str = fact_label.split('.', 1)[0].strip()
-        fact_id = int(fact_id_str)
-        s, p, o = fact_index.get(fact_id, (None, None, None))
-        if s is None:
-            return "", "", ""
-        subject = str(s).split(':')[-1] if ':' in str(s) else str(s)
-        predicate = str(p).split(':')[-1] if ':' in str(p) else str(p)
-        object_val = str(o)
-        return subject, predicate, object_val
-    except Exception:
+    triple = load_fact_by_label(fact_label)
+    if not triple:
         return "", "", ""
+    s, p, o = triple
+    subject = str(s).split(':')[-1] if ':' in str(s) else str(s)
+    predicate = str(p).split(':')[-1] if ':' in str(p) else str(p)
+    object_val = str(o)
+    return subject, predicate, object_val
 
 def update_fact(fact_label, new_subject, new_predicate, new_object):
     """Update a single fact by ID and persist changes"""
+    from knowledge import fact_index
     if not fact_label:
         return "⚠️ Select a fact first.", gr.update()
     try:
@@ -957,14 +962,14 @@ def update_fact(fact_label, new_subject, new_predicate, new_object):
             return "⚠️ Fact not found. Click Refresh Facts and try again.", gr.update()
         s_old, p_old, o_old = old
         # Remove old triple
-        graph.remove((s_old, p_old, o_old))
+        kb_graph.remove((s_old, p_old, o_old))
         # Add new triple
         s_new = rdflib.URIRef(f"urn:{new_subject.strip()}")
         p_new = rdflib.URIRef(f"urn:{new_predicate.strip()}")
         o_new = rdflib.Literal(new_object.strip())
-        graph.add((s_new, p_new, o_new))
+        kb_graph.add((s_new, p_new, o_new))
         # Persist
-        save_knowledge_graph()
+        kb_save_knowledge_graph()
         # Refresh list
         options_update, _ = list_facts_for_editing()
         return "✅ Fact updated and saved.", options_update
@@ -973,6 +978,7 @@ def update_fact(fact_label, new_subject, new_predicate, new_object):
 
 def delete_fact(fact_label):
     """Delete a single fact by ID and persist changes"""
+    from knowledge import fact_index
     if not fact_label:
         return "⚠️ Select a fact first.", gr.update()
     try:
@@ -980,8 +986,8 @@ def delete_fact(fact_label):
         old = fact_index.get(fact_id)
         if not old:
             return "⚠️ Fact not found. Click Refresh Facts and try again.", gr.update()
-        graph.remove(old)
-        save_knowledge_graph()
+        kb_graph.remove(old)
+        kb_save_knowledge_graph()
         options_update, _ = list_facts_for_editing()
         return "🗑️ Fact deleted.", options_update
     except Exception as e:
@@ -1412,7 +1418,7 @@ def handle_delete_all(confirm_text):
     """Validate confirmation and delete all knowledge"""
     if not confirm_text or confirm_text.strip().upper() != "DELETE":
         return "⚠️ Type DELETE to confirm full deletion."
-    return delete_all_knowledge()
+    return kb_delete_all_knowledge()
 
 def delete_knowledge_by_keyword(keyword):
     """Delete knowledge containing a specific keyword"""
@@ -1806,9 +1812,9 @@ def generate_mock_response(message, context, system_message):
 
 def save_and_backup():
     """Save knowledge and create backup"""
-    save_result = save_knowledge_graph()
-    file_path, status = create_and_get_backup()
-    return file_path, status
+    save_result = kb_save_knowledge_graph()
+    kb_create_comprehensive_backup()
+    return BACKUP_FILE, save_result
 
 # =========================================================
 #  🧩 4. Interface Layout
@@ -2139,6 +2145,7 @@ with gr.Blocks(title="Research Brain") as demo:
                 with gr.Row():
                     update_fact_btn = gr.Button("Update Fact", variant="primary")
                     delete_fact_btn = gr.Button("Delete Fact", variant="secondary")
+                fact_edit_status = gr.Textbox(label="Edit Status", interactive=False)
 
             with gr.Accordion("Visualization", open=False):
                 visualize_button = gr.Button("Visualize Knowledge Network", variant="primary")
@@ -2243,10 +2250,9 @@ if __name__ == "__main__":
     
     # Initialize knowledge graph and load existing data
     print("Initializing knowledge graph...")
-    graph = rdflib.Graph()
-    load_result = load_knowledge_graph()
+    load_result = kb_load_knowledge_graph()
     print(f"Startup: {load_result}")
-    print(f"Knowledge graph ready with {len(graph)} facts")
+    print(f"Knowledge graph ready with {len(kb_graph)} facts")
     
     # Launch the Gradio app
     # For Hugging Face Spaces, the platform handles the launch automatically
