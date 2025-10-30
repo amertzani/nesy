@@ -2105,31 +2105,46 @@ with gr.Blocks(title="Research Brain") as demo:
     gr.Markdown("## Research Brain\nBuild and explore knowledge graphs from research documents, publications, and datasets.")
 
     with gr.Row():
-        with gr.Column(scale=2):
-            with gr.Group():
-                gr.Markdown("### Data Ingestion")
-                # Text input
+        # Sidebar: all controls grouped in sections
+        with gr.Column(scale=1, min_width=320):
+            gr.Markdown("### Sidebar")
+            with gr.Accordion("Data Ingestion", open=True):
                 upload_box = gr.Textbox(
                     lines=5,
                     placeholder="Paste research text, abstracts, findings, or any content to extract knowledge...",
                     label="Add Research Content",
                 )
                 add_button = gr.Button("Extract Knowledge", variant="primary")
-                
-                # File upload
                 file_upload = gr.File(
                     label="Upload Research Documents (PDF, DOCX, TXT, CSV)",
                     file_types=[".pdf", ".docx", ".txt", ".csv"],
                     file_count="multiple"
                 )
                 upload_file_button = gr.Button("Process Documents", variant="primary")
-            
-            with gr.Group():
+
+            with gr.Accordion("Knowledge Base Management", open=False):
+                save_button = gr.Button("Save Knowledge", variant="secondary")
+                json_upload = gr.File(label="Upload Knowledge JSON", file_types=[".json"], file_count="single")
+                import_json_button = gr.Button("Import Knowledge JSON", variant="secondary")
+                delete_confirm = gr.Textbox(label="Type DELETE to confirm", placeholder="DELETE")
+                delete_all_btn = gr.Button("Delete All Knowledge", variant="secondary")
+                show_button = gr.Button("View Knowledge Base", variant="secondary")
+
+            with gr.Accordion("Edit or Remove Facts", open=False):
+                refresh_facts_btn = gr.Button("Refresh Facts", variant="secondary")
+                fact_selector = gr.Dropdown(label="Select Fact", choices=[], interactive=True, multiselect=False)
+                subj_box = gr.Textbox(label="Subject")
+                pred_box = gr.Textbox(label="Predicate")
+                obj_box = gr.Textbox(label="Object", lines=2)
                 with gr.Row():
-                    visualize_button = gr.Button("Visualize Knowledge Network", variant="primary", size="lg")
-                graph_plot = gr.HTML(label="Knowledge Graph Network", visible=True, min_height=500)
-        
-        with gr.Column(scale=1):
+                    update_fact_btn = gr.Button("Update Fact", variant="primary")
+                    delete_fact_btn = gr.Button("Delete Fact", variant="secondary")
+
+            with gr.Accordion("Visualization", open=False):
+                visualize_button = gr.Button("Visualize Knowledge Network", variant="primary")
+
+        # Main content: chat, outputs, plots
+        with gr.Column(scale=3):
             gr.Markdown("### Research Assistant")
             chatbot = gr.ChatInterface(
                 fn=lambda message, history: rqa_respond(message, history),
@@ -2143,36 +2158,11 @@ with gr.Blocks(title="Research Brain") as demo:
                     "What datasets were used?"
                 ]
             )
-            
-            with gr.Group():
-                gr.Markdown("### Knowledge Base Management")
-                with gr.Row():
-                    save_button = gr.Button("Save Knowledge", variant="secondary")
-                download_button = gr.File(label="Download Backup", visible=True)
-                graph_info = gr.Textbox(label="Status", interactive=False, visible=True, lines=1, max_lines=2)
-                # JSON import controls
-                json_upload = gr.File(label="Upload Knowledge JSON", file_types=[".json"], file_count="single")
-                import_json_button = gr.Button("Import Knowledge JSON", variant="secondary")
-                # Delete all knowledge controls
-                delete_confirm = gr.Textbox(label="Type DELETE to confirm", placeholder="DELETE")
-                delete_all_btn = gr.Button("Delete All Knowledge", variant="secondary")
-                with gr.Row():
-                    show_button = gr.Button("View Knowledge Base", variant="secondary")
-                graph_view = gr.Textbox(label="Knowledge Contents", visible=True, lines=3, max_lines=4)
 
-                # Fact editor
-                gr.Markdown("### Edit or Remove Facts")
-                with gr.Row():
-                    refresh_facts_btn = gr.Button("Refresh Facts", variant="secondary")
-                fact_selector = gr.Dropdown(label="Select Fact", choices=[], interactive=True, multiselect=False)
-                with gr.Row():
-                    subj_box = gr.Textbox(label="Subject")
-                    pred_box = gr.Textbox(label="Predicate")
-                obj_box = gr.Textbox(label="Object", lines=2)
-                with gr.Row():
-                    update_fact_btn = gr.Button("Update Fact", variant="primary")
-                    delete_fact_btn = gr.Button("Delete Fact", variant="secondary")
-                fact_edit_status = gr.Textbox(label="Edit Status", interactive=False)
+            graph_info = gr.Textbox(label="Status", interactive=False, visible=True, lines=1, max_lines=2)
+            download_button = gr.File(label="Download Backup", visible=True)
+            graph_view = gr.Textbox(label="Knowledge Contents", visible=True, lines=3, max_lines=4)
+            graph_plot = gr.HTML(label="Knowledge Graph Network", visible=True, min_height=500)
             
     # Event handlers for simplified UI
     add_button.click(
