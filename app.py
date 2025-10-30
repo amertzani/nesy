@@ -2113,7 +2113,7 @@ with gr.Blocks(title="Research Brain") as demo:
     with gr.Row():
         # Sidebar: all controls grouped in sections
         with gr.Column(scale=1, min_width=320):
-            gr.Markdown("### Sidebar")
+            gr.Markdown("### Controls")
             with gr.Accordion("Data Ingestion", open=True):
                 upload_box = gr.Textbox(
                     lines=5,
@@ -2128,13 +2128,15 @@ with gr.Blocks(title="Research Brain") as demo:
                 )
                 upload_file_button = gr.Button("Process Documents", variant="primary")
 
-            with gr.Accordion("Knowledge Base Management", open=False):
+            with gr.Accordion("Knowledge Base Management", open=True):
                 save_button = gr.Button("Save Knowledge", variant="secondary")
+                download_button = gr.File(label="Download Backup", visible=True)
                 json_upload = gr.File(label="Upload Knowledge JSON", file_types=[".json"], file_count="single")
                 import_json_button = gr.Button("Import Knowledge JSON", variant="secondary")
                 delete_confirm = gr.Textbox(label="Type DELETE to confirm", placeholder="DELETE")
                 delete_all_btn = gr.Button("Delete All Knowledge", variant="secondary")
                 show_button = gr.Button("View Knowledge Base", variant="secondary")
+                graph_view = gr.Textbox(label="Knowledge Contents", visible=True, lines=3, max_lines=4)
 
             with gr.Accordion("Edit or Remove Facts", open=False):
                 refresh_facts_btn = gr.Button("Refresh Facts", variant="secondary")
@@ -2147,11 +2149,13 @@ with gr.Blocks(title="Research Brain") as demo:
                     delete_fact_btn = gr.Button("Delete Fact", variant="secondary")
                 fact_edit_status = gr.Textbox(label="Edit Status", interactive=False)
 
-            with gr.Accordion("Visualization", open=False):
-                visualize_button = gr.Button("Visualize Knowledge Network", variant="primary")
+            graph_info = gr.Textbox(label="Status", interactive=False, visible=True, lines=1, max_lines=2)
 
-        # Main content: chat, outputs, plots
+        # Main content: Knowledge graph (large) and chat (smaller below)
         with gr.Column(scale=3):
+            gr.Markdown("### Knowledge Graph Network")
+            graph_plot = gr.HTML(label="Knowledge Graph", visible=True, min_height=600)
+            
             gr.Markdown("### Research Assistant")
             chatbot = gr.ChatInterface(
                 fn=lambda message, history: rqa_respond(message, history),
@@ -2163,25 +2167,36 @@ with gr.Blocks(title="Research Brain") as demo:
                     "What relationships exist in the data?",
                     "What are the important timelines?",
                     "What datasets were used?"
-                ]
+                ],
+                height=400
             )
-
-            graph_info = gr.Textbox(label="Status", interactive=False, visible=True, lines=1, max_lines=2)
-            download_button = gr.File(label="Download Backup", visible=True)
-            graph_view = gr.Textbox(label="Knowledge Contents", visible=True, lines=3, max_lines=4)
-            graph_plot = gr.HTML(label="Knowledge Graph Network", visible=True, min_height=500)
             
+    # Auto-load visualization on page load
+    demo.load(
+        fn=kb_visualize_knowledge_graph,
+        inputs=None,
+        outputs=graph_plot
+    )
+    
     # Event handlers for simplified UI
     add_button.click(
         fn=handle_add_knowledge, 
         inputs=upload_box, 
         outputs=[graph_info, upload_box]
+    ).then(
+        fn=kb_visualize_knowledge_graph,
+        inputs=None,
+        outputs=graph_plot
     )
     
     upload_file_button.click(
         fn=fp_handle_file_upload, 
         inputs=file_upload, 
         outputs=graph_info
+    ).then(
+        fn=kb_visualize_knowledge_graph,
+        inputs=None,
+        outputs=graph_plot
     )
     
     show_button.click(
@@ -2190,27 +2205,33 @@ with gr.Blocks(title="Research Brain") as demo:
         outputs=graph_view
     )
     
-    visualize_button.click(
-        fn=kb_visualize_knowledge_graph,
-        inputs=None,
-        outputs=graph_plot
-    )
-    
     save_button.click(
         fn=save_and_backup,
         outputs=[download_button, graph_info]
+    ).then(
+        fn=kb_visualize_knowledge_graph,
+        inputs=None,
+        outputs=graph_plot
     )
 
     import_json_button.click(
         fn=kb_import_json,
         inputs=json_upload,
         outputs=graph_info
+    ).then(
+        fn=kb_visualize_knowledge_graph,
+        inputs=None,
+        outputs=graph_plot
     )
 
     delete_all_btn.click(
         fn=handle_delete_all,
         inputs=delete_confirm,
         outputs=graph_info
+    ).then(
+        fn=kb_visualize_knowledge_graph,
+        inputs=None,
+        outputs=graph_plot
     )
 
     # Fact editor events
@@ -2227,11 +2248,19 @@ with gr.Blocks(title="Research Brain") as demo:
         fn=update_fact,
         inputs=[fact_selector, subj_box, pred_box, obj_box],
         outputs=[fact_edit_status, fact_selector]
+    ).then(
+        fn=kb_visualize_knowledge_graph,
+        inputs=None,
+        outputs=graph_plot
     )
     delete_fact_btn.click(
         fn=delete_fact,
         inputs=fact_selector,
         outputs=[fact_edit_status, fact_selector]
+    ).then(
+        fn=kb_visualize_knowledge_graph,
+        inputs=None,
+        outputs=graph_plot
     )
 
 # =========================================================
