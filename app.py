@@ -2171,8 +2171,7 @@ with gr.Blocks(title="Research Brain") as demo:
                     "What relationships exist in the data?",
                     "What are the important timelines?",
                     "What datasets were used?"
-                ],
-                height=400
+                ]
             )
             
     # Auto-load visualization on page load
