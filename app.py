@@ -2112,7 +2112,43 @@ with gr.Blocks(title="Research Brain") as demo:
     </script>
     """
     
-    gr.Markdown("## Research Brain\nBuild and explore knowledge graphs from research documents, publications, and datasets.")
+    # Header with GNOSES logos
+    with gr.Row():
+        with gr.Column(scale=1, min_width=100):
+            gr.HTML("""
+            <div style="text-align: center; padding: 10px;">
+                <svg width="80" height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Capital G shape -->
+                    <path d="M 60 20 Q 35 20 25 35 Q 20 45 20 50 Q 20 65 30 75 Q 40 80 55 80 L 55 65 L 40 65 Q 35 65 32 62 Q 30 58 30 50 Q 30 42 32 38 Q 35 35 40 35 L 60 35 L 60 20 Z" fill="#2196F3" />
+                    <!-- Diagonal line cutting through -->
+                    <line x1="18" y1="18" x2="82" y2="82" stroke="white" stroke-width="4" stroke-linecap="round" />
+                </svg>
+            </div>
+            """)
+        with gr.Column(scale=3):
+            gr.HTML("""
+            <div style="text-align: center; padding: 20px;">
+                <div style="position: relative; display: inline-block;">
+                    <h1 style="font-family: sans-serif; font-size: 2.5em; color: #2196F3; margin: 0; letter-spacing: 2px; position: relative; z-index: 1;">GNOSES</h1>
+                    <!-- Diagonal line through the G in GNOSES -->
+                    <svg width="350" height="80" viewBox="0 0 350 80" style="position: absolute; top: 5px; left: -25px; z-index: 2; pointer-events: none;">
+                        <line x1="15" y1="15" x2="55" y2="65" stroke="#2196F3" stroke-width="4" stroke-linecap="round" />
+                    </svg>
+                </div>
+                <p style="color: #666; margin-top: 10px;">Build and explore knowledge graphs from research documents, publications, and datasets.</p>
+            </div>
+            """)
+        with gr.Column(scale=1, min_width=100):
+            gr.HTML("""
+            <div style="text-align: center; padding: 10px;">
+                <svg width="80" height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Capital G shape -->
+                    <path d="M 60 20 Q 35 20 25 35 Q 20 45 20 50 Q 20 65 30 75 Q 40 80 55 80 L 55 65 L 40 65 Q 35 65 32 62 Q 30 58 30 50 Q 30 42 32 38 Q 35 35 40 35 L 60 35 L 60 20 Z" fill="#2196F3" />
+                    <!-- Diagonal line cutting through -->
+                    <line x1="18" y1="18" x2="82" y2="82" stroke="white" stroke-width="4" stroke-linecap="round" />
+                </svg>
+            </div>
+            """)
 
     with gr.Row():
         # Sidebar: all controls grouped in sections
