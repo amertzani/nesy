@@ -1827,6 +1827,24 @@ with gr.Blocks(title="Research Brain") as demo:
     # Add custom CSS for blue-grey theme - remove all orange!
     demo.css = """
     <style>
+        /* Hide window control buttons (minimize, maximize, close) */
+        button[aria-label*="close"],
+        button[aria-label*="Close"],
+        button[aria-label*="minimize"],
+        button[aria-label*="Minimize"],
+        button[aria-label*="maximize"],
+        button[aria-label*="Maximize"],
+        .gradio-container button[aria-label],
+        .gradio-container .toolbar button,
+        .gradio-container header button,
+        div[class*="window-controls"],
+        div[class*="title-bar"] button,
+        .control-buttons,
+        .window-controls {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        
         /* Override all button colors - remove orange completely */
         button { 
             background-color: #546E7A !important; 
@@ -2108,6 +2126,30 @@ with gr.Blocks(title="Research Brain") as demo:
                 });
             }
         });
+        
+        // Hide window control buttons
+        var hideWindowControls = function() {
+            var controls = document.querySelectorAll('button[aria-label*="close"], button[aria-label*="Close"], button[aria-label*="minimize"], button[aria-label*="Minimize"], button[aria-label*="maximize"], button[aria-label*="Maximize"], div[class*="window-controls"], div[class*="title-bar"] button');
+            controls.forEach(function(el) {
+                el.style.display = 'none';
+                el.style.visibility = 'hidden';
+            });
+            
+            // Hide any buttons in the top-right corner that look like window controls
+            var headerButtons = document.querySelectorAll('header button, .gradio-container > div:first-child button');
+            headerButtons.forEach(function(btn) {
+                if (btn.offsetParent !== null && (btn.getAttribute('aria-label') || btn.textContent.trim() === '')) {
+                    var rect = btn.getBoundingClientRect();
+                    if (rect.top < 50 && rect.right > window.innerWidth - 100) {
+                        btn.style.display = 'none';
+                        btn.style.visibility = 'hidden';
+                    }
+                }
+            });
+        };
+        
+        hideWindowControls();
+        setInterval(hideWindowControls, 500);
     }, 100);
     </script>
     """
