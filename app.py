@@ -2112,7 +2112,20 @@ with gr.Blocks(title="Research Brain") as demo:
     </script>
     """
     
-    gr.Markdown("## Research Brain\nBuild and explore knowledge graphs from research documents, publications, and datasets.")
+    # Header with logo in top right
+    logo_path = None
+    for ext in [".jpeg", ".jpg", ".png"]:
+        path = f"logo_G{ext}"
+        if os.path.exists(path):
+            logo_path = path
+            break
+    
+    with gr.Row():
+        with gr.Column(scale=3):
+            gr.Markdown("## Research Brain\nBuild and explore knowledge graphs from research documents, publications, and datasets.")
+        with gr.Column(scale=1, min_width=100):
+            if logo_path:
+                gr.Image(value=logo_path, label="", show_label=False, container=False, min_width=100, height=100)
 
     with gr.Row():
         # Sidebar: all controls grouped in sections
