@@ -2112,46 +2112,7 @@ with gr.Blocks(title="Research Brain") as demo:
     </script>
     """
     
-    # Header with GNOSES logos
-    header_logo_html = """
-    <div style="text-align: center; padding: 10px;">
-        <svg width="80" height="80" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-                <mask id="gMask">
-                    <rect width="80" height="80" fill="white"/>
-                </mask>
-            </defs>
-            <!-- Capital G using simple shapes -->
-            <rect x="10" y="10" width="60" height="60" rx="10" fill="#2196F3" stroke="none"/>
-            <rect x="35" y="35" width="30" height="30" fill="white"/>
-            <rect x="35" y="50" width="20" height="15" fill="#2196F3"/>
-            <!-- Diagonal line -->
-            <line x1="12" y1="12" x2="68" y2="68" stroke="white" stroke-width="6" stroke-linecap="round"/>
-        </svg>
-    </div>
-    """
-    
-    header_title_html = """
-    <div style="text-align: center; padding: 20px;">
-        <div style="position: relative; display: inline-block;">
-            <h1 style="font-family: Arial, sans-serif; font-size: 3em; font-weight: bold; color: #2196F3; margin: 0; letter-spacing: 4px;">
-                <span style="position: relative; display: inline-block; padding-right: 2px;">
-                    G
-                    <span style="position: absolute; top: 18px; left: 8px; width: 40px; height: 6px; background: #2196F3; transform: rotate(-45deg); transform-origin: center; display: block;"></span>
-                </span>NOSES
-            </h1>
-        </div>
-        <p style="color: #666; margin-top: 10px; font-size: 1.1em;">Build and explore knowledge graphs from research documents, publications, and datasets.</p>
-    </div>
-    """
-    
-    with gr.Row():
-        with gr.Column(scale=1, min_width=100):
-            gr.HTML(header_logo_html)
-        with gr.Column(scale=3):
-            gr.HTML(header_title_html)
-        with gr.Column(scale=1, min_width=100):
-            gr.HTML(header_logo_html)
+    gr.Markdown("## Research Brain\nBuild and explore knowledge graphs from research documents, publications, and datasets.")
 
     with gr.Row():
         # Sidebar: all controls grouped in sections
