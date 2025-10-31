@@ -2113,42 +2113,45 @@ with gr.Blocks(title="Research Brain") as demo:
     """
     
     # Header with GNOSES logos
+    header_logo_html = """
+    <div style="text-align: center; padding: 10px;">
+        <svg width="80" height="80" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <mask id="gMask">
+                    <rect width="80" height="80" fill="white"/>
+                </mask>
+            </defs>
+            <!-- Capital G using simple shapes -->
+            <rect x="10" y="10" width="60" height="60" rx="10" fill="#2196F3" stroke="none"/>
+            <rect x="35" y="35" width="30" height="30" fill="white"/>
+            <rect x="35" y="50" width="20" height="15" fill="#2196F3"/>
+            <!-- Diagonal line -->
+            <line x1="12" y1="12" x2="68" y2="68" stroke="white" stroke-width="6" stroke-linecap="round"/>
+        </svg>
+    </div>
+    """
+    
+    header_title_html = """
+    <div style="text-align: center; padding: 20px;">
+        <div style="position: relative; display: inline-block;">
+            <h1 style="font-family: Arial, sans-serif; font-size: 3em; font-weight: bold; color: #2196F3; margin: 0; letter-spacing: 4px;">
+                <span style="position: relative; display: inline-block; padding-right: 2px;">
+                    G
+                    <span style="position: absolute; top: 18px; left: 8px; width: 40px; height: 6px; background: #2196F3; transform: rotate(-45deg); transform-origin: center; display: block;"></span>
+                </span>NOSES
+            </h1>
+        </div>
+        <p style="color: #666; margin-top: 10px; font-size: 1.1em;">Build and explore knowledge graphs from research documents, publications, and datasets.</p>
+    </div>
+    """
+    
     with gr.Row():
         with gr.Column(scale=1, min_width=100):
-            gr.HTML("""
-            <div style="text-align: center; padding: 10px;">
-                <svg width="80" height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                    <!-- Capital G shape -->
-                    <path d="M 60 20 Q 35 20 25 35 Q 20 45 20 50 Q 20 65 30 75 Q 40 80 55 80 L 55 65 L 40 65 Q 35 65 32 62 Q 30 58 30 50 Q 30 42 32 38 Q 35 35 40 35 L 60 35 L 60 20 Z" fill="#2196F3" />
-                    <!-- Diagonal line cutting through -->
-                    <line x1="18" y1="18" x2="82" y2="82" stroke="white" stroke-width="4" stroke-linecap="round" />
-                </svg>
-            </div>
-            """)
+            gr.HTML(header_logo_html)
         with gr.Column(scale=3):
-            gr.HTML("""
-            <div style="text-align: center; padding: 20px;">
-                <div style="position: relative; display: inline-block;">
-                    <h1 style="font-family: sans-serif; font-size: 2.5em; color: #2196F3; margin: 0; letter-spacing: 2px; position: relative; z-index: 1;">GNOSES</h1>
-                    <!-- Diagonal line through the G in GNOSES -->
-                    <svg width="350" height="80" viewBox="0 0 350 80" style="position: absolute; top: 5px; left: -25px; z-index: 2; pointer-events: none;">
-                        <line x1="15" y1="15" x2="55" y2="65" stroke="#2196F3" stroke-width="4" stroke-linecap="round" />
-                    </svg>
-                </div>
-                <p style="color: #666; margin-top: 10px;">Build and explore knowledge graphs from research documents, publications, and datasets.</p>
-            </div>
-            """)
+            gr.HTML(header_title_html)
         with gr.Column(scale=1, min_width=100):
-            gr.HTML("""
-            <div style="text-align: center; padding: 10px;">
-                <svg width="80" height="80" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                    <!-- Capital G shape -->
-                    <path d="M 60 20 Q 35 20 25 35 Q 20 45 20 50 Q 20 65 30 75 Q 40 80 55 80 L 55 65 L 40 65 Q 35 65 32 62 Q 30 58 30 50 Q 30 42 32 38 Q 35 35 40 35 L 60 35 L 60 20 Z" fill="#2196F3" />
-                    <!-- Diagonal line cutting through -->
-                    <line x1="18" y1="18" x2="82" y2="82" stroke="white" stroke-width="4" stroke-linecap="round" />
-                </svg>
-            </div>
-            """)
+            gr.HTML(header_logo_html)
 
     with gr.Row():
         # Sidebar: all controls grouped in sections
