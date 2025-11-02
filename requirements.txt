@@ -8,3 +8,7 @@ networkx
 matplotlib
 plotly
 numpy
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
