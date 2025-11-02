@@ -1,14 +1,9 @@
 """
-Research Brain - Knowledge Management System
-CORRECT structure for Hugging Face Spaces deployment
-Gradio-first with FastAPI mounted underneath
+Research Brain - Pure Gradio Version for HF Spaces
+No FastAPI mounting - uses Gradio's built-in API system
 """
 
 import gradio as gr
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
 import rdflib
 import os
 import json
@@ -102,66 +97,49 @@ def delete_all_knowledge():
     return "🗑️ All knowledge deleted"
 
 # ==========================================================
-#  FASTAPI REST API (will be mounted under /api)
+#  API FUNCTIONS (callable via Gradio API)
 # ==========================================================
 
-api_app = FastAPI(title="Research Brain API", version="1.0.0")
-
-api_app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-class Fact(BaseModel):
-    subject: str
-    predicate: str
-    object: str
-    source: Optional[str] = "API"
-
-class FactUpdate(BaseModel):
-    subject: Optional[str] = None
-    predicate: Optional[str] = None
-    object: Optional[str] = None
-
-@api_app.get("/knowledge-base")
-async def get_knowledge_base():
+def api_get_knowledge_base():
+    """Get all facts - callable via Gradio API"""
     sync_rdf_to_facts_db()
     return {"facts": facts_db}
 
-@api_app.post("/facts")
-async def create_fact(fact: Fact):
+def api_create_fact(subject: str, predicate: str, obj: str, source: str = "API"):
+    """Create fact - callable via Gradio API"""
     global next_fact_id
+    
+    if not subject or not predicate or not obj:
+        return {"success": False, "error": "Missing required fields"}
+    
     new_fact = {
         "id": str(next_fact_id),
-        "subject": fact.subject,
-        "predicate": fact.predicate,
-        "object": fact.object,
-        "source": fact.source
+        "subject": subject,
+        "predicate": predicate,
+        "object": obj,
+        "source": source
     }
     facts_db.append(new_fact)
     next_fact_id += 1
     
-    s_ref = rdflib.URIRef(f"urn:{fact.subject}")
-    p_ref = rdflib.URIRef(f"urn:{fact.predicate}")
-    o_lit = rdflib.Literal(fact.object)
+    s_ref = rdflib.URIRef(f"urn:{subject}")
+    p_ref = rdflib.URIRef(f"urn:{predicate}")
+    o_lit = rdflib.Literal(obj)
     graph.add((s_ref, p_ref, o_lit))
     save_knowledge_graph()
     
     return {"success": True, "fact": new_fact}
 
-@api_app.patch("/facts/{fact_id}")
-async def update_fact(fact_id: str, updates: FactUpdate):
+def api_update_fact(fact_id: str, subject: str = "", predicate: str = "", obj: str = ""):
+    """Update fact - callable via Gradio API"""
     for fact in facts_db:
         if fact["id"] == fact_id:
-            if updates.subject:
-                fact["subject"] = updates.subject
-            if updates.predicate:
-                fact["predicate"] = updates.predicate
-            if updates.object:
-                fact["object"] = updates.object
+            if subject:
+                fact["subject"] = subject
+            if predicate:
+                fact["predicate"] = predicate
+            if obj:
+                fact["object"] = obj
             
             global graph
             graph = rdflib.Graph()
@@ -174,10 +152,10 @@ async def update_fact(fact_id: str, updates: FactUpdate):
             
             return {"success": True, "fact": fact}
     
-    raise HTTPException(status_code=404, detail="Fact not found")
+    return {"success": False, "error": "Fact not found"}
 
-@api_app.delete("/facts/{fact_id}")
-async def delete_fact(fact_id: str):
+def api_delete_fact(fact_id: str):
+    """Delete fact - callable via Gradio API"""
     global facts_db
     for i, fact in enumerate(facts_db):
         if fact["id"] == fact_id:
@@ -194,10 +172,10 @@ async def delete_fact(fact_id: str):
             
             return {"success": True, "deleted": deleted_fact}
     
-    raise HTTPException(status_code=404, detail="Fact not found")
+    return {"success": False, "error": "Fact not found"}
 
-@api_app.get("/graph")
-async def get_graph():
+def api_get_graph():
+    """Get graph data - callable via Gradio API"""
     sync_rdf_to_facts_db()
     nodes = []
     edges = []
@@ -220,12 +198,17 @@ async def get_graph():
     return {"nodes": nodes, "edges": edges}
 
 # ==========================================================
-#  GRADIO UI (Gradio-first approach for HF Spaces)
+#  GRADIO INTERFACE
 # ==========================================================
 
-demo = gr.Blocks(title="🧠 Research Brain", theme=gr.themes.Soft())
+# Load knowledge graph at startup
+print("🧠 Initializing Research Brain...")
+load_result = load_knowledge_graph()
+print(load_result)
 
-with demo:
+# Create Gradio interface
+with gr.Blocks(title="🧠 Research Brain", theme=gr.themes.Soft()) as demo:
+    
     gr.Markdown("""
     # 🧠 Research Brain
     ### Build and explore knowledge graphs from research documents
@@ -255,22 +238,51 @@ with demo:
             delete_btn = gr.Button("Delete All Knowledge", variant="stop")
         manage_status = gr.Textbox(label="Status", interactive=False)
 
-    with gr.Tab("🔌 API Info"):
+    with gr.Tab("🔌 API Access"):
         gr.Markdown("""
-        ### REST API Endpoints
+        ### Gradio API Access
         
-        Access your knowledge base via REST API at `/api/*`:
+        This Space provides API access through Gradio's built-in API system.
         
-        - **GET** `/api/knowledge-base` - Get all facts
-        - **POST** `/api/facts` - Create new fact
-        - **PATCH** `/api/facts/:id` - Update fact
-        - **DELETE** `/api/facts/:id` - Delete fact
-        - **GET** `/api/graph` - Get graph data
+        **Available API Functions:**
+        - `api_get_knowledge_base()` - Get all facts
+        - `api_create_fact(subject, predicate, object, source)` - Create fact
+        - `api_update_fact(fact_id, subject, predicate, object)` - Update fact
+        - `api_delete_fact(fact_id)` - Delete fact
+        - `api_get_graph()` - Get graph data
         
-        **Note:** API docs are available at `/api/docs`
+        **How to Use from JavaScript:**
+        ```javascript
+        const response = await fetch("https://asiminam-xnesy.hf.space/call/api_get_knowledge_base", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: [] })
+        });
+        const eventId = await response.json();
+        // Then poll for result...
+        ```
+        
+        **Note:** Update your Replit frontend to use Gradio's API format.
         """)
+        
+        with gr.Accordion("Test API Functions", open=False):
+            gr.Markdown("### Test Get Knowledge Base")
+            api_test_btn1 = gr.Button("Get Knowledge Base")
+            api_output1 = gr.JSON(label="API Response")
+            
+            gr.Markdown("### Test Create Fact")
+            with gr.Row():
+                api_subject = gr.Textbox(label="Subject", value="Research")
+                api_predicate = gr.Textbox(label="Predicate", value="relates_to")
+                api_object = gr.Textbox(label="Object", value="AI")
+            api_test_btn2 = gr.Button("Create Fact")
+            api_output2 = gr.JSON(label="API Response")
+            
+            gr.Markdown("### Test Get Graph")
+            api_test_btn3 = gr.Button("Get Graph Data")
+            api_output3 = gr.JSON(label="API Response")
 
-    # Event handlers
+    # Event handlers for UI
     def handle_add(text):
         result = add_to_graph(text)
         return result, ""
@@ -284,28 +296,17 @@ with demo:
             return delete_all_knowledge()
         return "⚠️ Type DELETE to confirm"
     
+    # Wire up UI events
     add_btn.click(fn=handle_add, inputs=[text_input], outputs=[status_text, text_input])
     view_btn.click(fn=show_graph_contents, outputs=[knowledge_view])
     save_btn.click(fn=handle_save, outputs=[download_btn, manage_status])
     delete_btn.click(fn=handle_delete, inputs=[delete_confirm], outputs=[manage_status])
-
-# ==========================================================
-#  INITIALIZATION - Gradio-first structure for HF Spaces
-# ==========================================================
-
-# Load knowledge graph
-print("🧠 Initializing Research Brain...")
-load_result = load_knowledge_graph()
-print(load_result)
-
-# Get the underlying Gradio ASGI app and mount FastAPI on it
-# This is the CORRECT way for HF Spaces
-gradio_app = demo.queue().app  # Get the Starlette app from Gradio
-gradio_app.mount("/api", api_app)  # Mount FastAPI under /api
-
-# HF Spaces looks for 'app' variable - provide the combined app
-app = gradio_app
+    
+    # Wire up API test events
+    api_test_btn1.click(fn=api_get_knowledge_base, outputs=[api_output1])
+    api_test_btn2.click(fn=api_create_fact, inputs=[api_subject, api_predicate, api_object], outputs=[api_output2])
+    api_test_btn3.click(fn=api_get_graph, outputs=[api_output3])
 
 print("✅ Research Brain ready!")
-print("✅ Gradio UI at: /")
-print("✅ FastAPI at: /api/*")
+print("✅ Gradio UI available")
+print("✅ API functions accessible via Gradio API")
