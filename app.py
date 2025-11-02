@@ -1,6 +1,6 @@
 """
-Research Brain - STEP 2: Add Persistent Storage
-Now data saves to a file and persists across restarts
+Research Brain - STEP 3: Structured Facts
+Add subject-predicate-object fact structure
 """
 
 import gradio as gr
@@ -25,25 +25,36 @@ def save_knowledge(kb):
     with open(STORAGE_FILE, 'wb') as f:
         pickle.dump(kb, f)
 
-# Initialize knowledge base
+# Initialize knowledge base - now stores structured facts
 knowledge_base = load_knowledge()
 
-def add_knowledge(text):
-    """Add text to knowledge base"""
-    if text.strip():
-        knowledge_base.append(text)
-        save_knowledge(knowledge_base)  # Save after adding
-        return f"✅ Added! Total items: {len(knowledge_base)}", ""
-    return "⚠️ Please enter some text", text
-
-def view_knowledge():
-    """View all knowledge"""
-    if not knowledge_base:
-        return "📭 No knowledge yet. Add some!"
+def add_fact(subject, predicate, obj):
+    """Add structured fact to knowledge base"""
+    if not subject.strip() or not predicate.strip() or not obj.strip():
+        return "⚠️ Please fill in all fields", subject, predicate, obj
     
-    result = f"📊 Knowledge Base ({len(knowledge_base)} items)\n\n"
-    for i, item in enumerate(knowledge_base, 1):
-        result += f"{i}. {item[:100]}...\n" if len(item) > 100 else f"{i}. {item}\n"
+    fact = {
+        "id": len(knowledge_base) + 1,
+        "subject": subject.strip(),
+        "predicate": predicate.strip(),
+        "object": obj.strip()
+    }
+    knowledge_base.append(fact)
+    save_knowledge(knowledge_base)
+    return f"✅ Added fact #{fact['id']}! Total: {len(knowledge_base)} facts", "", "", ""
+
+def view_facts():
+    """View all facts"""
+    if not knowledge_base:
+        return "📭 No facts yet. Add some!"
+    
+    result = f"📊 Knowledge Base ({len(knowledge_base)} facts)\n\n"
+    for fact in knowledge_base:
+        if isinstance(fact, dict):
+            result += f"#{fact.get('id', '?')}: {fact.get('subject', '?')} → {fact.get('predicate', '?')} → {fact.get('object', '?')}\n"
+        else:
+            # Handle old format from previous steps
+            result += f"Old format: {fact}\n"
     return result
 
 def delete_all():
@@ -52,32 +63,73 @@ def delete_all():
     save_knowledge(knowledge_base)
     return "🗑️ All knowledge deleted!"
 
+def get_stats():
+    """Get knowledge base statistics"""
+    if not knowledge_base:
+        return "No facts yet"
+    
+    # Count unique subjects, predicates, objects
+    subjects = set()
+    predicates = set()
+    objects = set()
+    
+    for fact in knowledge_base:
+        if isinstance(fact, dict):
+            subjects.add(fact.get('subject', ''))
+            predicates.add(fact.get('predicate', ''))
+            objects.add(fact.get('object', ''))
+    
+    return f"""
+📊 Statistics:
+- Total facts: {len(knowledge_base)}
+- Unique subjects: {len(subjects)}
+- Unique predicates: {len(predicates)}
+- Unique objects: {len(objects)}
+    """.strip()
+
 # Create Gradio interface
 with gr.Blocks(title="Research Brain") as demo:
-    gr.Markdown("# 🧠 Research Brain - Step 2: Persistent Storage")
-    gr.Markdown("✅ Data now saves to disk and persists across restarts!")
+    gr.Markdown("# 🧠 Research Brain - Step 3: Structured Facts")
+    gr.Markdown("✅ Now supports subject-predicate-object fact structure!")
     
-    with gr.Tab("Add Knowledge"):
-        text_input = gr.Textbox(lines=3, label="Enter text", placeholder="Type something...")
-        add_btn = gr.Button("Add", variant="primary")
+    with gr.Tab("Add Fact"):
+        gr.Markdown("### Create a New Fact")
+        gr.Markdown("Enter a fact in the form: **Subject** → **Predicate** → **Object**")
+        gr.Markdown("*Example: `Machine Learning` → `is part of` → `Artificial Intelligence`*")
+        
+        with gr.Row():
+            subject_input = gr.Textbox(label="Subject", placeholder="e.g., Machine Learning")
+            predicate_input = gr.Textbox(label="Predicate", placeholder="e.g., is part of")
+            object_input = gr.Textbox(label="Object", placeholder="e.g., Artificial Intelligence")
+        
+        add_btn = gr.Button("Add Fact", variant="primary", size="lg")
         status = gr.Textbox(label="Status", interactive=False)
         
-        add_btn.click(fn=add_knowledge, inputs=[text_input], outputs=[status, text_input])
+        add_btn.click(
+            fn=add_fact,
+            inputs=[subject_input, predicate_input, object_input],
+            outputs=[status, subject_input, predicate_input, object_input]
+        )
     
-    with gr.Tab("View Knowledge"):
-        view_btn = gr.Button("Refresh")
-        output = gr.Textbox(label="Knowledge Base", lines=10)
+    with gr.Tab("View Facts"):
+        with gr.Row():
+            view_btn = gr.Button("Refresh Facts", variant="secondary")
+            stats_btn = gr.Button("Show Statistics", variant="secondary")
         
-        view_btn.click(fn=view_knowledge, outputs=[output])
+        output = gr.Textbox(label="Knowledge Base", lines=15)
+        stats_output = gr.Textbox(label="Statistics", lines=5)
+        
+        view_btn.click(fn=view_facts, outputs=[output])
+        stats_btn.click(fn=get_stats, outputs=[stats_output])
     
     with gr.Tab("Manage"):
-        gr.Markdown("### Delete All Knowledge")
-        delete_btn = gr.Button("Delete All", variant="stop")
+        gr.Markdown("### Manage Knowledge Base")
+        delete_btn = gr.Button("Delete All Facts", variant="stop")
         delete_status = gr.Textbox(label="Status", interactive=False)
         
         delete_btn.click(fn=delete_all, outputs=[delete_status])
 
-print(f"📂 Loaded {len(knowledge_base)} items from storage")
+print(f"📂 Loaded {len(knowledge_base)} facts from storage")
 
 # Launch
 demo.launch()
