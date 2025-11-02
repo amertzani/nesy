@@ -1,7 +1,7 @@
 """
 Research Brain - Knowledge Management System
-Hugging Face Spaces Deployment
-Provides both Gradio UI and REST API for Replit frontend
+CORRECT structure for Hugging Face Spaces deployment
+Gradio-first with FastAPI mounted underneath
 """
 
 import gradio as gr
@@ -22,13 +22,11 @@ from datetime import datetime
 KNOWLEDGE_FILE = "knowledge_graph.pkl"
 BACKUP_FILE = "knowledge_backup.json"
 
-# Global state
 graph = rdflib.Graph()
 facts_db = []
 next_fact_id = 1
 
 def sync_rdf_to_facts_db():
-    """Synchronize RDF graph to facts database"""
     global facts_db, next_fact_id
     facts_db = []
     next_fact_id = 1
@@ -46,7 +44,6 @@ def sync_rdf_to_facts_db():
         next_fact_id += 1
 
 def save_knowledge_graph():
-    """Save knowledge graph to disk"""
     try:
         with open(KNOWLEDGE_FILE, 'wb') as f:
             pickle.dump(graph, f)
@@ -64,7 +61,6 @@ def save_knowledge_graph():
         return f"❌ Error: {e}"
 
 def load_knowledge_graph():
-    """Load knowledge graph from disk"""
     global graph
     try:
         if os.path.exists(KNOWLEDGE_FILE):
@@ -77,7 +73,6 @@ def load_knowledge_graph():
         return f"❌ Error: {e}"
 
 def add_to_graph(text):
-    """Add text to knowledge graph"""
     if not text.strip():
         return "⚠️ No text provided"
     s_ref = rdflib.URIRef(f"urn:text_input_{len(graph)}")
@@ -88,7 +83,6 @@ def add_to_graph(text):
     return f"✅ Added knowledge ({len(graph)} facts total)"
 
 def show_graph_contents():
-    """Display knowledge base contents"""
     if len(graph) == 0:
         return "📭 No facts in knowledge base yet"
     result = f"📊 **Knowledge Base ({len(graph)} facts)**\n\n"
@@ -102,25 +96,18 @@ def show_graph_contents():
     return result
 
 def delete_all_knowledge():
-    """Delete all knowledge"""
     global graph
     graph = rdflib.Graph()
     save_knowledge_graph()
     return "🗑️ All knowledge deleted"
 
 # ==========================================================
-#  FASTAPI REST API
+#  FASTAPI REST API (will be mounted under /api)
 # ==========================================================
 
-# Create FastAPI app first
-fastapi_app = FastAPI(
-    title="Research Brain API",
-    description="Knowledge management REST API",
-    version="1.0.0"
-)
+api_app = FastAPI(title="Research Brain API", version="1.0.0")
 
-# Add CORS
-fastapi_app.add_middleware(
+api_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -128,7 +115,6 @@ fastapi_app.add_middleware(
     allow_headers=["*"],
 )
 
-# Pydantic models
 class Fact(BaseModel):
     subject: str
     predicate: str
@@ -140,16 +126,13 @@ class FactUpdate(BaseModel):
     predicate: Optional[str] = None
     object: Optional[str] = None
 
-# API endpoints
-@fastapi_app.get("/api/knowledge-base")
+@api_app.get("/knowledge-base")
 async def get_knowledge_base():
-    """Get all facts from knowledge base"""
     sync_rdf_to_facts_db()
     return {"facts": facts_db}
 
-@fastapi_app.post("/api/facts")
+@api_app.post("/facts")
 async def create_fact(fact: Fact):
-    """Create a new fact"""
     global next_fact_id
     new_fact = {
         "id": str(next_fact_id),
@@ -161,7 +144,6 @@ async def create_fact(fact: Fact):
     facts_db.append(new_fact)
     next_fact_id += 1
     
-    # Add to RDF graph
     s_ref = rdflib.URIRef(f"urn:{fact.subject}")
     p_ref = rdflib.URIRef(f"urn:{fact.predicate}")
     o_lit = rdflib.Literal(fact.object)
@@ -170,9 +152,8 @@ async def create_fact(fact: Fact):
     
     return {"success": True, "fact": new_fact}
 
-@fastapi_app.patch("/api/facts/{fact_id}")
+@api_app.patch("/facts/{fact_id}")
 async def update_fact(fact_id: str, updates: FactUpdate):
-    """Update an existing fact"""
     for fact in facts_db:
         if fact["id"] == fact_id:
             if updates.subject:
@@ -182,7 +163,6 @@ async def update_fact(fact_id: str, updates: FactUpdate):
             if updates.object:
                 fact["object"] = updates.object
             
-            # Rebuild RDF graph
             global graph
             graph = rdflib.Graph()
             for f in facts_db:
@@ -196,15 +176,13 @@ async def update_fact(fact_id: str, updates: FactUpdate):
     
     raise HTTPException(status_code=404, detail="Fact not found")
 
-@fastapi_app.delete("/api/facts/{fact_id}")
+@api_app.delete("/facts/{fact_id}")
 async def delete_fact(fact_id: str):
-    """Delete a fact"""
     global facts_db
     for i, fact in enumerate(facts_db):
         if fact["id"] == fact_id:
             deleted_fact = facts_db.pop(i)
             
-            # Rebuild RDF graph
             global graph
             graph = rdflib.Graph()
             for f in facts_db:
@@ -218,9 +196,8 @@ async def delete_fact(fact_id: str):
     
     raise HTTPException(status_code=404, detail="Fact not found")
 
-@fastapi_app.get("/api/graph")
+@api_app.get("/graph")
 async def get_graph():
-    """Get graph visualization data"""
     sync_rdf_to_facts_db()
     nodes = []
     edges = []
@@ -243,12 +220,12 @@ async def get_graph():
     return {"nodes": nodes, "edges": edges}
 
 # ==========================================================
-#  GRADIO UI
+#  GRADIO UI (Gradio-first approach for HF Spaces)
 # ==========================================================
 
-gradio_app = gr.Blocks(title="🧠 Research Brain", theme=gr.themes.Soft())
+demo = gr.Blocks(title="🧠 Research Brain", theme=gr.themes.Soft())
 
-with gradio_app:
+with demo:
     gr.Markdown("""
     # 🧠 Research Brain
     ### Build and explore knowledge graphs from research documents
@@ -279,10 +256,10 @@ with gradio_app:
         manage_status = gr.Textbox(label="Status", interactive=False)
 
     with gr.Tab("🔌 API Info"):
-        gr.Markdown(f"""
+        gr.Markdown("""
         ### REST API Endpoints
         
-        Access your knowledge base via REST API:
+        Access your knowledge base via REST API at `/api/*`:
         
         - **GET** `/api/knowledge-base` - Get all facts
         - **POST** `/api/facts` - Create new fact
@@ -290,9 +267,7 @@ with gradio_app:
         - **DELETE** `/api/facts/:id` - Delete fact
         - **GET** `/api/graph` - Get graph data
         
-        **API Documentation:** Visit `/docs` for interactive API docs
-        
-        **Current Stats:** {len(facts_db)} facts in knowledge base
+        **Note:** API docs are available at `/api/docs`
         """)
 
     # Event handlers
@@ -309,29 +284,27 @@ with gradio_app:
             return delete_all_knowledge()
         return "⚠️ Type DELETE to confirm"
     
-    # Wire up events
     add_btn.click(fn=handle_add, inputs=[text_input], outputs=[status_text, text_input])
     view_btn.click(fn=show_graph_contents, outputs=[knowledge_view])
     save_btn.click(fn=handle_save, outputs=[download_btn, manage_status])
     delete_btn.click(fn=handle_delete, inputs=[delete_confirm], outputs=[manage_status])
 
 # ==========================================================
-#  INITIALIZATION & MOUNTING
+#  INITIALIZATION - Gradio-first structure for HF Spaces
 # ==========================================================
 
-# Initialize at module level
-print("=" * 50)
+# Load knowledge graph
 print("🧠 Initializing Research Brain...")
 load_result = load_knowledge_graph()
 print(load_result)
-print("=" * 50)
 
-# Mount Gradio on FastAPI - this must be the LAST line
-# The resulting app variable is what HF Spaces will serve
-app = gr.mount_gradio_app(fastapi_app, gradio_app, path="/")
+# Mount FastAPI under /api on the Gradio app
+# This is the CORRECT way for HF Spaces
+demo.mount("/api", api_app)
+
+# HF Spaces looks for 'app' variable - provide it
+app = demo
 
 print("✅ Research Brain ready!")
 print("✅ Gradio UI at: /")
 print("✅ FastAPI at: /api/*")
-print("✅ API docs at: /docs")
-print("=" * 50)
