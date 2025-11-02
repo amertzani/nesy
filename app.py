@@ -298,12 +298,13 @@ print("🧠 Initializing Research Brain...")
 load_result = load_knowledge_graph()
 print(load_result)
 
-# Mount FastAPI under /api on the Gradio app
+# Get the underlying Gradio ASGI app and mount FastAPI on it
 # This is the CORRECT way for HF Spaces
-demo.mount("/api", api_app)
+gradio_app = demo.queue().app  # Get the Starlette app from Gradio
+gradio_app.mount("/api", api_app)  # Mount FastAPI under /api
 
-# HF Spaces looks for 'app' variable - provide it
-app = demo
+# HF Spaces looks for 'app' variable - provide the combined app
+app = gradio_app
 
 print("✅ Research Brain ready!")
 print("✅ Gradio UI at: /")
