@@ -1,5 +1,6 @@
 """
-Research Brain - STEP 5 FIXED: API Functions with Proper Gradio API Exposure
+Research Brain - STEP 6: Properly Exposed Gradio API
+Uses correct /api/predict/{api_name} endpoints
 """
 
 import gradio as gr
@@ -49,17 +50,17 @@ def save_knowledge(kb):
 knowledge_base = load_knowledge()
 
 # ==========================================================
-#  API FUNCTIONS (callable from Replit frontend)
+#  API FUNCTIONS - Return data directly (not JSON strings)
 # ==========================================================
 
 def api_get_knowledge_base():
-    """API: Get all facts - returns JSON string"""
-    return json.dumps({"facts": knowledge_base})
+    """API: Get all facts"""
+    return {"facts": knowledge_base}
 
 def api_create_fact(subject, predicate, obj, source="API"):
-    """API: Create a new fact - returns JSON string"""
+    """API: Create a new fact"""
     if not subject.strip() or not predicate.strip() or not obj.strip():
-        return json.dumps({"success": False, "error": "Missing required fields"})
+        return {"success": False, "error": "Missing required fields"}
     
     fact = {
         "id": str(len(knowledge_base) + 1),
@@ -78,13 +79,12 @@ def api_create_fact(subject, predicate, obj, source="API"):
     
     save_knowledge(knowledge_base)
     
-    return json.dumps({"success": True, "fact": fact})
+    return {"success": True, "fact": fact}
 
 def api_update_fact(fact_id, subject="", predicate="", obj=""):
-    """API: Update a fact - returns JSON string"""
+    """API: Update a fact"""
     for fact in knowledge_base:
         if isinstance(fact, dict) and str(fact.get("id")) == str(fact_id):
-            # Update fields if provided
             if subject:
                 fact["subject"] = subject
             if predicate:
@@ -103,12 +103,12 @@ def api_update_fact(fact_id, subject="", predicate="", obj=""):
                     graph.add((s, p, o))
             
             save_knowledge(knowledge_base)
-            return json.dumps({"success": True, "fact": fact})
+            return {"success": True, "fact": fact}
     
-    return json.dumps({"success": False, "error": "Fact not found"})
+    return {"success": False, "error": "Fact not found"}
 
 def api_delete_fact(fact_id):
-    """API: Delete a fact - returns JSON string"""
+    """API: Delete a fact"""
     global graph
     
     for i, fact in enumerate(knowledge_base):
@@ -125,12 +125,12 @@ def api_delete_fact(fact_id):
                     graph.add((s, p, o))
             
             save_knowledge(knowledge_base)
-            return json.dumps({"success": True, "deleted": deleted_fact})
+            return {"success": True, "deleted": deleted_fact}
     
-    return json.dumps({"success": False, "error": "Fact not found"})
+    return {"success": False, "error": "Fact not found"}
 
 def api_get_graph():
-    """API: Get graph visualization data - returns JSON string"""
+    """API: Get graph visualization data"""
     nodes = []
     edges = []
     node_set = set()
@@ -157,7 +157,7 @@ def api_get_graph():
                     "label": pred
                 })
     
-    return json.dumps({"nodes": nodes, "edges": edges})
+    return {"nodes": nodes, "edges": edges}
 
 # ==========================================================
 #  UI FUNCTIONS
@@ -165,8 +165,7 @@ def api_get_graph():
 
 def add_fact(subject, predicate, obj):
     """Add fact via UI"""
-    result_str = api_create_fact(subject, predicate, obj, "UI")
-    result = json.loads(result_str)
+    result = api_create_fact(subject, predicate, obj, "UI")
     if result["success"]:
         fact = result["fact"]
         return f"✅ Added fact #{fact['id']}! Total: {len(knowledge_base)} facts", "", "", ""
@@ -230,74 +229,8 @@ def get_stats():
 # ==========================================================
 
 with gr.Blocks(title="Research Brain") as demo:
-    gr.Markdown("# 🧠 Research Brain - Step 5: API Integration (FIXED)")
-    gr.Markdown("✅ API functions properly exposed via Gradio API!")
-    
-    # Hidden API endpoints (these expose the functions via Gradio's API)
-    with gr.Accordion("🔌 API Endpoints (Hidden - Used by Replit)", open=False, visible=True):
-        gr.Markdown("""
-        ### These components expose the API functions to external apps
-        They are configured with `api_name` to be callable from your Replit frontend.
-        """)
-        
-        # API endpoint: Get knowledge base
-        api_get_kb_btn = gr.Button("Get Knowledge Base", visible=False)
-        api_get_kb_output = gr.Textbox(visible=False)
-        api_get_kb_btn.click(
-            fn=api_get_knowledge_base,
-            inputs=[],
-            outputs=[api_get_kb_output],
-            api_name="api_get_knowledge_base"
-        )
-        
-        # API endpoint: Create fact
-        api_create_subj = gr.Textbox(visible=False)
-        api_create_pred = gr.Textbox(visible=False)
-        api_create_obj = gr.Textbox(visible=False)
-        api_create_source = gr.Textbox(visible=False, value="API")
-        api_create_btn = gr.Button("Create Fact", visible=False)
-        api_create_output = gr.Textbox(visible=False)
-        api_create_btn.click(
-            fn=api_create_fact,
-            inputs=[api_create_subj, api_create_pred, api_create_obj, api_create_source],
-            outputs=[api_create_output],
-            api_name="api_create_fact"
-        )
-        
-        # API endpoint: Update fact
-        api_update_id = gr.Textbox(visible=False)
-        api_update_subj = gr.Textbox(visible=False)
-        api_update_pred = gr.Textbox(visible=False)
-        api_update_obj = gr.Textbox(visible=False)
-        api_update_btn = gr.Button("Update Fact", visible=False)
-        api_update_output = gr.Textbox(visible=False)
-        api_update_btn.click(
-            fn=api_update_fact,
-            inputs=[api_update_id, api_update_subj, api_update_pred, api_update_obj],
-            outputs=[api_update_output],
-            api_name="api_update_fact"
-        )
-        
-        # API endpoint: Delete fact
-        api_delete_id = gr.Textbox(visible=False)
-        api_delete_btn = gr.Button("Delete Fact", visible=False)
-        api_delete_output = gr.Textbox(visible=False)
-        api_delete_btn.click(
-            fn=api_delete_fact,
-            inputs=[api_delete_id],
-            outputs=[api_delete_output],
-            api_name="api_delete_fact"
-        )
-        
-        # API endpoint: Get graph
-        api_graph_btn = gr.Button("Get Graph", visible=False)
-        api_graph_output = gr.Textbox(visible=False)
-        api_graph_btn.click(
-            fn=api_get_graph,
-            inputs=[],
-            outputs=[api_graph_output],
-            api_name="api_get_graph"
-        )
+    gr.Markdown("# 🧠 Research Brain - Step 6: Proper API Endpoints")
+    gr.Markdown("✅ Using /api/predict/{api_name} format!")
     
     # Regular UI tabs
     with gr.Tab("Add Fact"):
@@ -334,6 +267,71 @@ with gr.Blocks(title="Research Brain") as demo:
         
         rdf_view_btn.click(fn=view_rdf_graph, outputs=[rdf_output])
     
+    with gr.Tab("🔌 API Testing"):
+        gr.Markdown("""
+        ### Test API Endpoints
+        These functions are exposed at `/api/predict/{api_name}`
+        """)
+        
+        with gr.Accordion("Get Knowledge Base", open=True):
+            test_get_btn = gr.Button("Get All Facts")
+            test_get_output = gr.JSON(label="Result")
+            test_get_btn.click(
+                fn=api_get_knowledge_base,
+                outputs=[test_get_output],
+                api_name="get_knowledge_base"
+            )
+        
+        with gr.Accordion("Create Fact", open=False):
+            with gr.Row():
+                test_subj = gr.Textbox(label="Subject", value="Test")
+                test_pred = gr.Textbox(label="Predicate", value="relates_to")
+                test_obj = gr.Textbox(label="Object", value="API")
+            test_source = gr.Textbox(label="Source", value="API", visible=False)
+            test_create_btn = gr.Button("Create Fact")
+            test_create_output = gr.JSON(label="Result")
+            test_create_btn.click(
+                fn=api_create_fact,
+                inputs=[test_subj, test_pred, test_obj, test_source],
+                outputs=[test_create_output],
+                api_name="create_fact"
+            )
+        
+        with gr.Accordion("Update Fact", open=False):
+            with gr.Row():
+                test_update_id = gr.Textbox(label="Fact ID", value="1")
+                test_update_subj = gr.Textbox(label="Subject", value="Updated")
+            test_update_pred = gr.Textbox(label="Predicate", value="")
+            test_update_obj = gr.Textbox(label="Object", value="")
+            test_update_btn = gr.Button("Update Fact")
+            test_update_output = gr.JSON(label="Result")
+            test_update_btn.click(
+                fn=api_update_fact,
+                inputs=[test_update_id, test_update_subj, test_update_pred, test_update_obj],
+                outputs=[test_update_output],
+                api_name="update_fact"
+            )
+        
+        with gr.Accordion("Delete Fact", open=False):
+            test_delete_id = gr.Textbox(label="Fact ID", value="1")
+            test_delete_btn = gr.Button("Delete Fact")
+            test_delete_output = gr.JSON(label="Result")
+            test_delete_btn.click(
+                fn=api_delete_fact,
+                inputs=[test_delete_id],
+                outputs=[test_delete_output],
+                api_name="delete_fact"
+            )
+        
+        with gr.Accordion("Get Graph", open=False):
+            test_graph_btn = gr.Button("Get Graph Data")
+            test_graph_output = gr.JSON(label="Result")
+            test_graph_btn.click(
+                fn=api_get_graph,
+                outputs=[test_graph_output],
+                api_name="get_graph"
+            )
+    
     with gr.Tab("Manage"):
         delete_btn = gr.Button("Delete All Facts", variant="stop")
         delete_status = gr.Textbox(label="Status", interactive=False)
@@ -341,6 +339,10 @@ with gr.Blocks(title="Research Brain") as demo:
 
 print(f"📂 Loaded {len(knowledge_base)} facts")
 print(f"🌐 RDF graph has {len(graph)} triples")
-print(f"✅ API functions exposed with api_name!")
+print(f"✅ API endpoints ready at /api/predict/{{api_name}}")
 
+# Enable queue for better API handling (optional but recommended)
+demo.queue()
+
+# Launch
 demo.launch()
