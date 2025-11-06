@@ -1,24 +1,15 @@
 {
-  "last_updated": "2025-11-06T11:44:36.795677",
-  "total_documents": 2,
+  "last_updated": "2025-11-06T15:42:14.918574",
+  "total_documents": 1,
   "documents": [
     {
       "id": "1",
-      "name": "test.txt",
+      "name": "requirements.txt",
       "type": "txt",
-      "size": 15,
-      "uploaded_at": "2025-11-06T11:42:42.210867",
+      "size": 160,
+      "uploaded_at": "2025-11-06T15:42:14.918549",
       "status": "completed",
-      "facts_extracted": 1
-    },
-    {
-      "id": "2",
-      "name": "tester2.docx",
-      "type": "docx",
-      "size": 16633,
-      "uploaded_at": "2025-11-06T11:44:36.795651",
-      "status": "completed",
-      "facts_extracted": 5
+      "facts_extracted": 2
     }
   ]
 }
