@@ -1,0 +1,54 @@
+{
+  "timestamp": "2025-11-06T11:44:36.661788",
+  "total_facts": 8,
+  "facts": [
+    {
+      "id": 1,
+      "subject": "urn:Detailed_Work_Plan",
+      "predicate": "urn:type",
+      "object": "entity"
+    },
+    {
+      "id": 2,
+      "subject": "urn:Any_discrepancies_apart_from_the_ones",
+      "predicate": "urn:discovered",
+      "object": "in KoM notes"
+    },
+    {
+      "id": 3,
+      "subject": "urn:facts",
+      "predicate": "urn:are",
+      "object": "new"
+    },
+    {
+      "id": 4,
+      "subject": "urn:SMARTIN",
+      "predicate": "urn:has",
+      "object": "facts"
+    },
+    {
+      "id": 5,
+      "subject": "urn:Involved_Partners",
+      "predicate": "urn:type",
+      "object": "entity"
+    },
+    {
+      "id": 6,
+      "subject": "urn:next_meeting_proposal",
+      "predicate": "urn:is",
+      "object": "3rd Monday of each month 10-11 CET"
+    },
+    {
+      "id": 7,
+      "subject": "urn:homework",
+      "predicate": "urn:is",
+      "object": "Detailed Work Plan with Involved Partners till Month 18"
+    },
+    {
+      "id": 8,
+      "subject": "urn:new_fact",
+      "predicate": "urn:is",
+      "object": "new"
+    }
+  ]
+}

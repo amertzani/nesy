@@ -1,3 +1,26 @@
+"""
+Knowledge Graph Management Module
+==================================
+
+This module is the CORE of the knowledge extraction and management system.
+It handles:
+- RDF knowledge graph storage and retrieval
+- Knowledge extraction from text (NLP-based)
+- Fact management (add, delete, check duplicates)
+- Graph visualization data generation
+
+CRITICAL FOR KNOWLEDGE EXTRACTION IMPROVEMENTS:
+The main function to improve is: add_to_graph(text) - Line ~400
+This function extracts subject-predicate-object triples from raw text.
+
+Data Storage:
+- knowledge_graph.pkl: Pickled RDFLib Graph object (binary)
+- knowledge_backup.json: JSON backup of all facts
+
+Author: Research Brain Team
+Last Updated: 2025-01-15
+"""
+
 import os
 import json
 import pickle
@@ -6,11 +29,20 @@ import rdflib
 import re
 import networkx as nx
 
-# Storage file paths
-KNOWLEDGE_FILE = "knowledge_graph.pkl"
-BACKUP_FILE = "knowledge_backup.json"
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
-# Global RDF graph
+# Storage file paths
+KNOWLEDGE_FILE = "knowledge_graph.pkl"  # Main persistent storage (RDF graph)
+BACKUP_FILE = "knowledge_backup.json"   # JSON backup for recovery
+
+# ============================================================================
+# GLOBAL STATE
+# ============================================================================
+
+# Global RDF graph - in-memory representation of all knowledge
+# Structure: RDF triples (subject, predicate, object)
 graph = rdflib.Graph()
 
 # Mapping of fact IDs to triples for editing operations
@@ -43,7 +75,99 @@ def load_knowledge_graph():
     try:
         if os.path.exists(KNOWLEDGE_FILE):
             with open(KNOWLEDGE_FILE, 'rb') as f:
-                graph = pickle.load(f)
+                loaded_graph = pickle.load(f)
+            
+            original_count = len(loaded_graph)
+            print(f"🔍 DEBUG: Loaded {original_count} facts from pickle file")
+            
+            # Clean up any invalid URIs (with spaces) that might cause issues
+            # This fixes old facts that were saved with spaces in URIs
+            # Only clean if there are actually invalid URIs - don't remove valid facts!
+            cleaned_graph = rdflib.Graph()
+            invalid_count = 0
+            
+            # Use loaded_graph, not the global graph (which might be empty)
+            for s, p, o in loaded_graph:
+                s_str = str(s)
+                p_str = str(p)
+                
+                # Check if URI has spaces (invalid) - look for "urn:" followed by space
+                # Valid URIs shouldn't have spaces after "urn:"
+                has_invalid_uri = False
+                try:
+                    # Check if subject has spaces after urn:
+                    if 'urn:' in s_str:
+                        subject_part = s_str.split('urn:')[-1]
+                        if ' ' in subject_part:
+                            has_invalid_uri = True
+                    # Check if predicate has spaces after urn:
+                    if 'urn:' in p_str:
+                        predicate_part = p_str.split('urn:')[-1]
+                        if ' ' in predicate_part:
+                            has_invalid_uri = True
+                except:
+                    # If we can't parse, assume valid
+                    pass
+                
+                if has_invalid_uri:
+                    # Invalid URI - recreate with proper encoding
+                    invalid_count += 1
+                    from urllib.parse import quote
+                    s_clean = s_str.split(':')[-1] if ':' in s_str else s_str
+                    p_clean = p_str.split(':')[-1] if ':' in p_str else p_str
+                    s_clean = s_clean.strip().replace(' ', '_')
+                    p_clean = p_clean.strip().replace(' ', '_')
+                    s_new = rdflib.URIRef(f"urn:{quote(s_clean, safe='')}")
+                    p_new = rdflib.URIRef(f"urn:{quote(p_clean, safe='')}")
+                    cleaned_graph.add((s_new, p_new, o))
+                else:
+                    # Valid URI - keep as is
+                    cleaned_graph.add((s, p, o))
+            
+            # Verify cleaned_graph has facts
+            cleaned_count = len(cleaned_graph)
+            print(f"🔍 DEBUG: cleaned_graph has {cleaned_count} facts after processing")
+            
+            if cleaned_count == 0 and original_count > 0:
+                print(f"⚠️  CRITICAL ERROR: cleaned_graph is empty but original had {original_count} facts!")
+                print("⚠️  Using original graph without cleaning")
+                # Clear the global graph and add all facts from loaded_graph
+                graph.clear()
+                for triple in loaded_graph:
+                    graph.add(triple)
+            else:
+                # Always use cleaned_graph (it has all facts, cleaned or not)
+                # Clear the global graph and add all facts from cleaned_graph
+                # This ensures we update the actual graph object, not replace the reference
+                graph.clear()
+                for triple in cleaned_graph:
+                    graph.add(triple)
+            
+            # Only update if we actually fixed something
+            if invalid_count > 0:
+                print(f"⚠️  Fixed {invalid_count} facts with invalid URIs")
+                save_knowledge_graph()  # Save the cleaned version
+            else:
+                # No invalid URIs found - graph already has all facts
+                print(f"✅ All {original_count} facts have valid URIs")
+            
+            final_count = len(graph)
+            print(f"🔍 DEBUG: Final graph has {final_count} facts")
+            
+            if final_count != original_count:
+                print(f"⚠️  ERROR: Graph count changed from {original_count} to {final_count}!")
+                # This shouldn't happen - restore original
+                print("⚠️  Restoring original graph...")
+                graph = loaded_graph
+                return f"📂 Loaded {len(graph)} facts from storage (restored original)"
+            
+            # Verify the graph actually has facts
+            if len(graph) == 0 and original_count > 0:
+                print(f"⚠️  CRITICAL ERROR: Graph is empty after loading {original_count} facts!")
+                # Restore from file
+                graph = loaded_graph
+                return f"📂 Loaded {len(graph)} facts from storage (restored after empty graph error)"
+            
             return f"📂 Loaded {len(graph)} facts from storage"
         else:
             return "📂 No existing knowledge file found, starting fresh"
@@ -280,12 +404,92 @@ def extract_triples(text):
                 unique_triples.append((s, p, o))
     return unique_triples
 
+def fact_exists(subject: str, predicate: str, object_val: str) -> bool:
+    """
+    Check if a fact (subject, predicate, object) already exists in the graph.
+    Handles URI encoding/decoding to properly compare facts.
+    Case-insensitive comparison to prevent duplicates with different cases.
+    
+    Args:
+        subject: The subject of the fact
+        predicate: The predicate of the fact
+        object_val: The object of the fact
+    
+    Returns:
+        True if the fact already exists (case-insensitive), False otherwise
+    """
+    global graph
+    import rdflib
+    from urllib.parse import quote, unquote
+    
+    # Normalize the input (case-insensitive)
+    # Convert to lowercase and normalize spaces/underscores for consistent comparison
+    subject_normalized = str(subject).strip().lower().replace('_', ' ')
+    predicate_normalized = str(predicate).strip().lower().replace('_', ' ')
+    object_normalized = str(object_val).strip().lower()
+    
+    # Check all facts in the graph for case-insensitive match
+    for s, p, o in graph:
+        # Extract and normalize subject from URI
+        s_str = str(s)
+        if 'urn:' in s_str:
+            # Decode URI: unquote, replace underscores with spaces, lowercase
+            s_decoded = unquote(s_str.replace('urn:', '')).replace('_', ' ').lower().strip()
+        else:
+            s_decoded = str(s).lower().strip().replace('_', ' ')
+        
+        # Extract and normalize predicate from URI
+        p_str = str(p)
+        if 'urn:' in p_str:
+            p_decoded = unquote(p_str.replace('urn:', '')).replace('_', ' ').lower().strip()
+        else:
+            p_decoded = str(p).lower().strip().replace('_', ' ')
+        
+        # Normalize object (already a literal)
+        o_decoded = str(o).lower().strip()
+        
+        # Compare case-insensitively (both normalized to lowercase with spaces)
+        if (s_decoded == subject_normalized and 
+            p_decoded == predicate_normalized and 
+            o_decoded == object_normalized):
+            return True
+    
+    return False
+
 def add_to_graph(text):
+    global graph
+    import rdflib
+    from urllib.parse import quote
+    
     new_triples = extract_triples(text)
+    added_count = 0
+    skipped_count = 0
+    
     for s, p, o in new_triples:
-        graph.add((rdflib.URIRef(f"urn:{s}"), rdflib.URIRef(f"urn:{p}"), rdflib.Literal(o)))
+        # Check if fact already exists before adding
+        if fact_exists(s, p, o):
+            skipped_count += 1
+            continue
+        
+        # Properly encode URIs like create_fact_endpoint does
+        # Replace spaces with underscores and URL-encode to avoid RDFLib warnings
+        subject_clean = str(s).strip().replace(' ', '_')
+        predicate_clean = str(p).strip().replace(' ', '_')
+        object_value = str(o).strip()
+        
+        # Create URIs (encode spaces to avoid RDFLib warnings)
+        subject_uri = rdflib.URIRef(f"urn:{quote(subject_clean, safe='')}")
+        predicate_uri = rdflib.URIRef(f"urn:{quote(predicate_clean, safe='')}")
+        object_literal = rdflib.Literal(object_value)
+        
+        graph.add((subject_uri, predicate_uri, object_literal))
+        added_count += 1
+    
     save_knowledge_graph()
-    return f" Added {len(new_triples)} new triples. Total facts stored: {len(graph)}.\n Saved"
+    
+    if skipped_count > 0:
+        return f" Added {added_count} new triples, skipped {skipped_count} duplicates. Total facts stored: {len(graph)}.\n Saved"
+    return f" Added {added_count} new triples. Total facts stored: {len(graph)}.\n Saved"
 
 def retrieve_context(question, limit=10):
     matches = []
@@ -502,14 +706,47 @@ def import_knowledge_from_json_file(file):
                 if not subject or not predicate or obj is None:
                     skipped += 1
                     continue
-                s_ref = rdflib.URIRef(subject if str(subject).startswith('urn:') else f"urn:{subject}")
-                p_ref = rdflib.URIRef(predicate if str(predicate).startswith('urn:') else f"urn:{predicate}")
-                o_lit = rdflib.Literal(obj)
+                
+                # Extract subject/predicate from URI if needed (handle both formats)
+                # If it's already a URI like "urn:subject", extract the subject part
+                subject_str = str(subject)
+                if subject_str.startswith('urn:'):
+                    # Extract the actual subject text from URI
+                    from urllib.parse import unquote
+                    subject_str = unquote(subject_str.replace('urn:', '')).replace('_', ' ')
+                else:
+                    subject_str = str(subject)
+                
+                predicate_str = str(predicate)
+                if predicate_str.startswith('urn:'):
+                    from urllib.parse import unquote
+                    predicate_str = unquote(predicate_str.replace('urn:', '')).replace('_', ' ')
+                else:
+                    predicate_str = str(predicate)
+                
+                obj_str = str(obj)
+                
+                # Check if fact already exists using fact_exists function
+                if fact_exists(subject_str, predicate_str, obj_str):
+                    skipped += 1
+                    continue
+                
+                # Create URIs using the same encoding as other functions
+                from urllib.parse import quote
+                subject_clean = subject_str.strip().replace(' ', '_')
+                predicate_clean = predicate_str.strip().replace(' ', '_')
+                s_ref = rdflib.URIRef(f"urn:{quote(subject_clean, safe='')}")
+                p_ref = rdflib.URIRef(f"urn:{quote(predicate_clean, safe='')}")
+                o_lit = rdflib.Literal(obj_str)
+                
                 graph.add((s_ref, p_ref, o_lit))
                 added += 1
-            except Exception:
+            except Exception as e:
                 skipped += 1
+                print(f"⚠️  Error importing fact: {e}")
         save_knowledge_graph()
+        if skipped > 0:
+            return f"✅ Imported {added} new facts, skipped {skipped} duplicates. Total facts: {len(graph)}."
         return f"✅ Imported {added} facts. Skipped {skipped}. Total facts: {len(graph)}."
     except Exception as e:
         return f"❌ Import failed: {e}"

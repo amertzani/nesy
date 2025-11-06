@@ -1,3 +1,33 @@
+"""
+Document Text Extraction Module
+================================
+
+This module handles extracting raw text content from various file formats.
+The extracted text is then passed to knowledge.py for fact extraction.
+
+Supported Formats:
+- PDF: Uses PyPDF2
+- DOCX: Uses python-docx
+- TXT: Direct file read
+- CSV: Uses pandas (extracts text from cells)
+- PPTX: Uses python-pptx (if available)
+
+Flow:
+1. User uploads file → api_server.py receives it
+2. api_server.py calls handle_file_upload() → extracts text
+3. Extracted text → knowledge.add_to_graph() → extracts facts
+
+Key Functions:
+- handle_file_upload(file_paths): Main entry point - processes multiple files
+- process_uploaded_file(file): Processes single file, returns text
+- extract_text_from_pdf(): PDF text extraction
+- extract_text_from_docx(): DOCX text extraction
+- extract_text_from_csv(): CSV text extraction
+
+Author: Research Brain Team
+Last Updated: 2025-01-15
+"""
+
 import os
 from datetime import datetime
 import pandas as pd
@@ -5,8 +35,12 @@ import PyPDF2
 from docx import Document
 from knowledge import add_to_graph
 
-last_extracted_text = ""
-processed_files = []
+# ============================================================================
+# GLOBAL STATE
+# ============================================================================
+
+last_extracted_text = ""  # Last extracted text (for debugging)
+processed_files = []      # List of processed file names
 
 def extract_text_from_pdf(file_path):
     try:
@@ -63,7 +97,11 @@ def show_extracted_text():
 def process_uploaded_file(file):
     if file is None:
         return "No file uploaded."
-    file_path = file.name
+    # Handle both string paths and file objects
+    if isinstance(file, str):
+        file_path = file
+    else:
+        file_path = file.name if hasattr(file, 'name') else str(file)
     file_extension = os.path.splitext(file_path)[1].lower()
     if file_extension == '.pdf':
         extracted_text = extract_text_from_pdf(file_path)

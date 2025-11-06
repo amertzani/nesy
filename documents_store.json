@@ -1,0 +1,24 @@
+{
+  "last_updated": "2025-11-06T11:44:36.795677",
+  "total_documents": 2,
+  "documents": [
+    {
+      "id": "1",
+      "name": "test.txt",
+      "type": "txt",
+      "size": 15,
+      "uploaded_at": "2025-11-06T11:42:42.210867",
+      "status": "completed",
+      "facts_extracted": 1
+    },
+    {
+      "id": "2",
+      "name": "tester2.docx",
+      "type": "docx",
+      "size": 16633,
+      "uploaded_at": "2025-11-06T11:44:36.795651",
+      "status": "completed",
+      "facts_extracted": 5
+    }
+  ]
+}
