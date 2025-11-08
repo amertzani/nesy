@@ -118,6 +118,14 @@ def delete_document(document_id: str) -> bool:
         return True
     return False
 
+def delete_all_documents() -> int:
+    """Delete all documents and return the count deleted"""
+    documents = load_documents()
+    count = len(documents)
+    if count > 0:
+        save_documents([])  # Save empty list
+    return count
+
 def cleanup_documents_without_facts() -> int:
     """
     PERMANENTLY remove documents that have facts_extracted=0 OR documents whose

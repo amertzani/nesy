@@ -47,7 +47,7 @@ from knowledge import (
     import_knowledge_from_json_file as kb_import_json
 )
 from file_processing import handle_file_upload as fp_handle_file_upload
-from documents_store import add_document, get_all_documents, delete_document as ds_delete_document, cleanup_documents_without_facts
+from documents_store import add_document, get_all_documents, delete_document as ds_delete_document, cleanup_documents_without_facts, delete_all_documents as ds_delete_all_documents
 from knowledge import create_comprehensive_backup as kb_create_comprehensive_backup
 
 from contextlib import asynccontextmanager
@@ -58,24 +58,33 @@ async def lifespan(app: FastAPI):
     # Startup
     print("Initializing knowledge graph...")
     try:
-        load_result = kb_load_knowledge_graph()
-        print(f"Startup: {load_result}")
-        fact_count = len(kb_graph)
-        print(f"Knowledge graph ready with {fact_count} facts")
+        # Clear all facts on every restart
+        print("🗑️  Clearing all facts on startup...")
+        delete_result = kb_delete_all_knowledge()
+        print(f"Startup: {delete_result}")
         
-        # Clean up documents without facts from previous sessions
-        print("Cleaning up documents without facts...")
-        cleaned_count = cleanup_documents_without_facts()
-        if cleaned_count > 0:
-            print(f"✅ Cleaned up {cleaned_count} documents without facts")
+        # Also clear all documents
+        print("🗑️  Clearing all documents...")
+        deleted_docs = ds_delete_all_documents()
+        if deleted_docs > 0:
+            print(f"✅ Deleted {deleted_docs} documents")
         else:
-            print("✅ No documents needed cleanup")
+            print("✅ No documents to delete")
         
-        # Verify the count makes sense
-        if 'Loaded' in load_result and fact_count == 0:
-            print("⚠️  Warning: Graph loaded but shows 0 facts. This might indicate a cleanup issue.")
+        # Verify graph is empty after clearing
+        fact_count = len(kb_graph)
+        print(f"✅ Knowledge graph initialized with {fact_count} facts (fresh start)")
+        
+        # IMPORTANT: Verify the graph file is actually empty
+        import os
+        if os.path.exists("knowledge_graph.pkl"):
+            file_size = os.path.getsize("knowledge_graph.pkl")
+            print(f"✅ Graph file size after clear: {file_size} bytes")
+            if file_size > 1000:  # If file is still large, something went wrong
+                print(f"⚠️  WARNING: Graph file is {file_size} bytes but graph has {fact_count} facts!")
+                print("⚠️  This might indicate the clear didn't work properly")
     except Exception as e:
-        print(f"⚠️  Warning during knowledge graph load: {e}")
+        print(f"⚠️  Warning during knowledge graph initialization: {e}")
         import traceback
         traceback.print_exc()
         print("Continuing with empty graph...")
@@ -111,6 +120,7 @@ class AddFactRequest(BaseModel):
     predicate: str
     object: str
     source: Optional[str] = "manual"
+    details: Optional[str] = None
 
 class DeleteKnowledgeRequest(BaseModel):
     keyword: Optional[str] = None
@@ -137,12 +147,24 @@ async def health():
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatMessage):
     """Chat endpoint - ask questions about the knowledge base"""
+    import asyncio
     try:
-        response = rqa_respond(request.message, request.history)
+        # Run the response generation in a thread pool to avoid blocking
+        # and set a timeout to prevent hanging
+        loop = asyncio.get_event_loop()
+        response = await asyncio.wait_for(
+            loop.run_in_executor(None, rqa_respond, request.message, request.history),
+            timeout=60.0  # 60 second timeout
+        )
         return {
             "response": response,
             "status": "success"
         }
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504, 
+            detail="Request timed out. The LLM is taking too long to respond. Try disabling LLM with USE_LLM=false or ask a simpler question."
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing chat: {str(e)}")
 
@@ -155,7 +177,20 @@ async def add_knowledge_endpoint(request: AddKnowledgeRequest):
         
         # Add knowledge to graph
         result = kb_add_to_graph(request.text)
+        # add_to_graph already saves, but ensure it's saved
         kb_save_knowledge_graph()
+        
+        # Verify save worked
+        if os.path.exists("knowledge_graph.pkl"):
+            file_size = os.path.getsize("knowledge_graph.pkl")
+            print(f"✅ Knowledge saved - file size: {file_size} bytes, facts in graph: {len(kb_graph)}")
+        
+        # Extract extraction method from result message
+        extraction_method = "regex"
+        if "TRIPLEX" in result.upper():
+            extraction_method = "triplex"
+        elif "FALLBACK" in result.upper():
+            extraction_method = "regex (triplex fallback)"
         
         # Get newly added facts (those added after the operation)
         # Extract the last fact added (most recent)
@@ -179,7 +214,8 @@ async def add_knowledge_endpoint(request: AddKnowledgeRequest):
             "message": result,
             "status": "success",
             "total_facts": len(kb_graph),
-            "fact": new_fact  # Return the created fact for frontend
+            "fact": new_fact,  # Return the created fact for frontend
+            "extraction_method": extraction_method  # Indicate which method was used
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding knowledge: {str(e)}")
@@ -220,28 +256,45 @@ async def create_fact_endpoint(request: AddFactRequest):
         # Add directly to graph
         kb_graph.add((subject_uri, predicate_uri, object_literal))
         
+        # Add details if provided
+        if request.details and request.details.strip():
+            from knowledge import add_fact_details as kb_add_fact_details
+            kb_add_fact_details(request.subject, request.predicate, object_value, request.details)
+        
+        # Add source document and timestamp (manual for directly created facts)
+        from datetime import datetime
+        from knowledge import add_fact_source_document as kb_add_fact_source_document
+        timestamp = datetime.now().isoformat()
+        kb_add_fact_source_document(request.subject, request.predicate, object_value, "manual", timestamp)
+        
         # Save to disk
         save_result = kb_save_knowledge_graph()
         
         # Verify the fact was added
         fact_count = len(kb_graph)
         print(f"✅ POST /api/knowledge/facts: Added fact - {request.subject} {request.predicate} {request.object}")
+        if request.details:
+            print(f"✅ Added details: {request.details[:50]}...")
         print(f"✅ Save result: {save_result}")
         print(f"✅ Total facts in graph: {fact_count}")
         
         # Verify file was written
-        import os
         if os.path.exists("knowledge_graph.pkl"):
             file_size = os.path.getsize("knowledge_graph.pkl")
             print(f"✅ Knowledge file size: {file_size} bytes")
         
+        # Get details for the response
+        from knowledge import get_fact_details as kb_get_fact_details
+        details = kb_get_fact_details(request.subject, request.predicate, object_value)
+        
         # Create the fact object - use the actual index in the graph
         new_fact = {
-            "id": fact_count,  # Use current count as ID
+            "id": str(fact_count),  # Use current count as ID (string format)
             "subject": request.subject,  # Return original subject (with spaces)
             "predicate": request.predicate,  # Return original predicate (with spaces)
             "object": object_value,  # Return original object
-            "source": request.source
+            "source": request.source,
+            "details": details if details else None
         }
         
         return {
@@ -256,49 +309,103 @@ async def create_fact_endpoint(request: AddFactRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error creating fact: {str(e)}")
 
+@app.get("/api/knowledge/triplex-status")
+async def triplex_status_endpoint():
+    """Get Triplex model status and availability"""
+    try:
+        from knowledge import TRIPLEX_AVAILABLE, USE_TRIPLEX, TRIPLEX_MODEL, TRIPLEX_DEVICE
+        
+        status = {
+            "available": TRIPLEX_AVAILABLE,
+            "enabled": USE_TRIPLEX,
+            "loaded": TRIPLEX_MODEL is not None,
+            "device": TRIPLEX_DEVICE if TRIPLEX_AVAILABLE else "N/A"
+        }
+        
+        if TRIPLEX_AVAILABLE and USE_TRIPLEX:
+            status["message"] = "Triplex is available and enabled. LLM extraction will be used."
+        elif TRIPLEX_AVAILABLE and not USE_TRIPLEX:
+            status["message"] = "Triplex is available but disabled. Set USE_TRIPLEX=true to enable."
+        else:
+            status["message"] = "Triplex is not available. Using regex-based extraction."
+        
+        return status
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting Triplex status: {str(e)}")
+
 @app.post("/api/knowledge/upload")
 async def upload_file_endpoint(files: List[UploadFile] = File(...)):
     """Upload and process files (PDF, DOCX, TXT, CSV)"""
+    tmp_paths = []  # Initialize outside try block so finally can access it
     try:
         facts_before = len(kb_graph)
-        tmp_paths = []
         file_info_list = []
+        
+        # Map temporary file paths to original filenames
+        temp_to_original = {}
         
         for file in files:
             # Save uploaded file temporarily
             suffix = os.path.splitext(file.filename)[1] if file.filename else ""
+            original_filename = file.filename or 'unknown'
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
                 content = await file.read()
                 tmp_file.write(content)
-                tmp_paths.append(tmp_file.name)
+                tmp_path = tmp_file.name
+                tmp_paths.append(tmp_path)
+                temp_to_original[tmp_path] = original_filename
                 file_info_list.append({
-                    'name': file.filename or 'unknown',
+                    'name': original_filename,
                     'size': len(content),
                     'type': suffix.lstrip('.') or 'unknown'
                 })
         
         try:
             # Process all files at once (handle_file_upload expects a list)
-            result = fp_handle_file_upload(tmp_paths)
+            # Pass the mapping of temp paths to original filenames
+            result = fp_handle_file_upload(tmp_paths, original_filenames=temp_to_original)
             
-            # IMPORTANT: Reload graph from disk to ensure we have the latest facts
-            # The graph might have been saved by add_to_graph, but we need to reload
-            # to get the correct count and ensure consistency
-            import time
-            time.sleep(0.1)  # Small delay to ensure file write is complete
+            # IMPORTANT: Ensure graph is saved to disk
+            # add_to_graph already saves, but let's make sure it's persisted
+            kb_save_knowledge_graph()
+            
+            # CRITICAL: Reload from disk to get the actual saved facts
+            # The in-memory graph might be out of sync if there were multiple processes
+            # or if the graph was cleared on startup
             kb_load_knowledge_graph()
             
             facts_after = len(kb_graph)
             facts_extracted = facts_after - facts_before
             
-            # Parse result message to extract added/skipped counts
+            print(f"🔍 DEBUG: After reload - facts_before: {facts_before}, facts_after: {facts_after}, extracted: {facts_extracted}")
+            
+            # CRITICAL: If facts_extracted is 0 but we processed files, check the result message
+            # The result message from add_to_graph contains the actual count
+            if facts_extracted == 0 and result:
+                # Try to extract the actual count from the result message
+                import re
+                total_match = re.search(r'Total facts stored: (\d+)', result)
+                if total_match:
+                    total_facts = int(total_match.group(1))
+                    facts_extracted = max(0, total_facts - facts_before)
+                    print(f"⚠️  Adjusted facts_extracted from result message: {facts_extracted}")
+            
+            # Parse result message to extract added/skipped counts and extraction method
             import re
             added_match = re.search(r'Added (\d+) new triples', result)
             skipped_match = re.search(r'skipped (\d+) duplicates', result)
             added_count = int(added_match.group(1)) if added_match else facts_extracted
             skipped_count = int(skipped_match.group(1)) if skipped_match else 0
             
+            # Extract extraction method from result
+            extraction_method = "regex"
+            if "TRIPLEX" in result.upper():
+                extraction_method = "triplex"
+            elif "FALLBACK" in result.upper():
+                extraction_method = "regex (triplex fallback)"
+            
             print(f"✅ Upload processed {len(files)} file(s)")
+            print(f"   Extraction method: {extraction_method}")
             print(f"   Facts before: {facts_before}, after: {facts_after}, extracted: {facts_extracted}")
             print(f"   Added: {added_count}, Skipped duplicates: {skipped_count}")
             print(f"   Graph now has {len(kb_graph)} total facts")
@@ -311,19 +418,21 @@ async def upload_file_endpoint(files: List[UploadFile] = File(...)):
                 print("   ⚠️  WARNING: Graph is empty after processing!")
             
             # Save document metadata - ONLY if facts were actually extracted
-            # NEVER save documents with 0 facts
+            # Save document if ANY facts were extracted (even if some were duplicates)
             processed_docs = []
-            if facts_extracted > 0 and added_count > 0:
-                # Only save/update documents if facts were actually extracted AND added
+            if facts_extracted > 0:
+                # Save document if we extracted facts (use facts_extracted, not added_count)
+                # This ensures documents are saved even if all facts were duplicates
                 for file_info in file_info_list:
                     doc = add_document(
                         name=file_info['name'],
                         size=file_info['size'],
                         file_type=file_info['type'],
-                        facts_extracted=added_count  # Use actual added count (excluding duplicates)
+                        facts_extracted=facts_extracted  # Use total extracted, not just added
                     )
-                    processed_docs.append(doc)
-                    print(f"✅ Saved document {file_info['name']} with {added_count} facts")
+                    if doc:  # Only append if document was saved (has facts > 0)
+                        processed_docs.append(doc)
+                        print(f"✅ Saved document {file_info['name']} with {facts_extracted} facts extracted")
             else:
                 # No facts extracted - PERMANENTLY REMOVE any existing documents with this name
                 print(f"⚠️  No facts extracted from {len(files)} file(s) - REMOVING documents")
@@ -338,30 +447,53 @@ async def upload_file_endpoint(files: List[UploadFile] = File(...)):
                         save_documents(docs)
                         print(f"   🗑️  PERMANENTLY removed {file_info['name']} (no facts extracted)")
             
+            # Final save to ensure everything is persisted to disk
+            kb_save_knowledge_graph()
+            
+            # CRITICAL: Reload one more time to ensure in-memory graph matches disk
+            # This is necessary because the graph might have been cleared on startup
+            kb_load_knowledge_graph()
+            
+            # Verify final state
+            final_fact_count = len(kb_graph)
+            if os.path.exists("knowledge_graph.pkl"):
+                file_size = os.path.getsize("knowledge_graph.pkl")
+                print(f"✅ Final save - file size: {file_size} bytes, facts in graph: {final_fact_count}")
+                
+            # Update total_facts in response to reflect actual graph state
+            if final_fact_count > 0:
+                print(f"✅ Upload complete: Graph now has {final_fact_count} facts in memory")
+            
             print(f"✅ Upload processed {len(files)} file(s), added {added_count} new facts, skipped {skipped_count} duplicates")
+            
+            # Get final fact count after all saves and reloads
+            final_total = len(kb_graph)
             
             return {
                 "message": result,
                 "files_processed": len(files),
                 "status": "success",
-                "total_facts": len(kb_graph),
+                "total_facts": final_total,  # Use final count after reload
                 "facts_extracted": added_count,  # Use actual added count
                 "facts_skipped": skipped_count,   # Add skipped duplicates count
+                "extraction_method": extraction_method,  # Indicate which method was used
                 "documents": processed_docs
             }
         finally:
             # Clean up temporary files
-            for tmp_path in tmp_paths:
-                if os.path.exists(tmp_path):
-                    try:
-                        os.unlink(tmp_path)
-                    except:
-                        pass
+            if tmp_paths:  # Only clean up if tmp_paths was initialized
+                for tmp_path in tmp_paths:
+                    if os.path.exists(tmp_path):
+                        try:
+                            os.unlink(tmp_path)
+                        except Exception as cleanup_error:
+                            print(f"⚠️  Warning: Could not delete temp file {tmp_path}: {cleanup_error}")
     except Exception as e:
-        print(f"❌ Error uploading files: {str(e)}")
+        error_msg = str(e)
+        print(f"❌ Error uploading files: {error_msg}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error uploading files: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error uploading files: {error_msg}")
 
 @app.get("/api/knowledge/graph")
 async def get_graph_endpoint():
@@ -393,18 +525,50 @@ async def get_contents_endpoint():
 async def get_facts_endpoint():
     """Get all knowledge graph facts as structured JSON array"""
     try:
-        # ALWAYS reload from disk to ensure we have the latest persisted facts
-        # This is critical after document processing
+        # CRITICAL: Always reload from disk to get the latest saved facts
+        # This ensures we have facts that were saved after upload, even if server was restarted
+        # The in-memory graph might be empty if server was restarted (cleared on startup)
         load_result = kb_load_knowledge_graph()
         print(f"📥 GET /api/knowledge/facts: Reloaded graph - {load_result}")
         print(f"📥 Graph now has {len(kb_graph)} facts in memory")
         
+        # Debug: If graph is empty but file exists, something is wrong
+        import os
+        if len(kb_graph) == 0 and os.path.exists("knowledge_graph.pkl"):
+            file_size = os.path.getsize("knowledge_graph.pkl")
+            if file_size > 1000:  # File has data but graph is empty
+                print(f"⚠️  WARNING: Graph file is {file_size} bytes but graph is empty!")
+                print(f"⚠️  This might indicate a loading issue. Trying to reload...")
+                # Try reloading again
+                load_result = kb_load_knowledge_graph()
+                print(f"📥 Retry load result: {load_result}")
+                print(f"📥 Graph after retry: {len(kb_graph)} facts")
+        
+        # Debug: Show some sample facts from the graph
+        if len(kb_graph) > 0:
+            sample_triples = list(kb_graph)[:3]
+            print(f"📥 Sample triples from graph: {sample_triples}")
+        
         facts = []
-        for i, (s, p, o) in enumerate(kb_graph):
+        # Import get_fact_details function
+        from knowledge import get_fact_details as kb_get_fact_details
+        from knowledge import get_fact_source_document as kb_get_fact_source_document
+        from urllib.parse import unquote
+        
+        fact_index = 0
+        for s, p, o in kb_graph:
+            # Skip metadata triples (those with special predicates for details, source document, timestamp)
+            predicate_str = str(p)
+            if ('fact_subject' in predicate_str or 'fact_predicate' in predicate_str or 
+                'fact_object' in predicate_str or 'has_details' in predicate_str or 
+                'source_document' in predicate_str or 'uploaded_at' in predicate_str):
+                continue
+            
+            fact_index += 1
+            
             # Extract subject from URI (urn:subject -> subject)
             subject = str(s).split(':')[-1] if ':' in str(s) else str(s)
             # Decode URL encoding and replace underscores back to spaces
-            from urllib.parse import unquote
             subject = unquote(subject).replace('_', ' ')
             
             # Extract predicate from URI
@@ -414,12 +578,21 @@ async def get_facts_endpoint():
             # Object is already a literal, just get the string value
             object_val = str(o)
             
+            # Get details for this fact
+            details = kb_get_fact_details(subject, predicate, object_val)
+            
+            # Get source document and timestamp
+            source_document, uploaded_at = kb_get_fact_source_document(subject, predicate, object_val)
+            
             facts.append({
-                "id": i + 1,
+                "id": str(fact_index),
                 "subject": subject,
                 "predicate": predicate,
                 "object": object_val,
-                "source": "knowledge_graph"
+                "source": "knowledge_graph",
+                "details": details if details else None,
+                "sourceDocument": source_document if source_document else None,
+                "uploadedAt": uploaded_at if uploaded_at else None
             })
         
         print(f"✅ GET /api/knowledge/facts: Returning {len(facts)} facts")
@@ -428,16 +601,24 @@ async def get_facts_endpoint():
         else:
             print("   ⚠️  No facts in graph!")
             # Debug: Check if file exists
-            import os
             if os.path.exists("knowledge_graph.pkl"):
                 file_size = os.path.getsize("knowledge_graph.pkl")
                 print(f"   📁 knowledge_graph.pkl exists ({file_size} bytes) but graph is empty!")
+                # If file exists but no facts, try to see what's in the graph
+                all_triples = list(kb_graph)
+                print(f"   📊 Total triples in graph: {len(all_triples)}")
+                if len(all_triples) > 0:
+                    print(f"   📊 Sample triple: {all_triples[0]}")
         
+        # CRITICAL: Return facts in the format the frontend expects
+        # Frontend expects: { success: true, data: { facts: [...] } }
+        # But FastAPI returns directly, so we need to ensure the response has the right structure
         response = {
             "facts": facts,
-            "total_facts": len(kb_graph),
+            "total_facts": len(facts),  # Use len(facts) not len(kb_graph) since we filter metadata
             "status": "success"
         }
+        print(f"📤 Response structure: {len(response.get('facts', []))} facts, total_facts: {response.get('total_facts')}")
         return response
     except Exception as e:
         print(f"❌ Error getting facts: {str(e)}")
@@ -566,6 +747,10 @@ async def delete_fact_endpoint(fact_id: str):
         predicate_uri = rdflib.URIRef(f"urn:{quote(predicate_clean, safe='')}")
         object_literal = rdflib.Literal(object_value)
         
+        # Remove details first (if any)
+        from knowledge import remove_fact_details as kb_remove_fact_details
+        kb_remove_fact_details(subject, predicate, object_value)
+        
         # Remove from graph
         if (subject_uri, predicate_uri, object_literal) in kb_graph:
             kb_graph.remove((subject_uri, predicate_uri, object_literal))
@@ -604,9 +789,22 @@ async def export_knowledge_endpoint():
         # Reload graph to ensure we have latest facts
         kb_load_knowledge_graph()
         
+        # Import get_fact_details function
+        from knowledge import get_fact_details as kb_get_fact_details
+        
         # Extract facts from graph
         facts = []
+        # Import get_fact_source_document function
+        from knowledge import get_fact_source_document as kb_get_fact_source_document
+        
         for i, (s, p, o) in enumerate(kb_graph):
+            # Skip metadata triples (those with special predicates for details, source document, timestamp)
+            predicate_str = str(p)
+            if ('fact_subject' in predicate_str or 'fact_predicate' in predicate_str or 
+                'fact_object' in predicate_str or 'has_details' in predicate_str or 
+                'source_document' in predicate_str or 'uploaded_at' in predicate_str):
+                continue
+            
             # Extract subject from URI (urn:subject -> subject)
             subject = str(s).split(':')[-1] if ':' in str(s) else str(s)
             # Decode URL encoding and replace underscores back to spaces
@@ -619,12 +817,21 @@ async def export_knowledge_endpoint():
             # Object is already a literal, just get the string value
             object_val = str(o)
             
+            # Get details for this fact
+            details = kb_get_fact_details(subject, predicate, object_val)
+            
+            # Get source document and timestamp
+            source_document, uploaded_at = kb_get_fact_source_document(subject, predicate, object_val)
+            
             facts.append({
                 "id": str(i + 1),
                 "subject": subject,
                 "predicate": predicate,
                 "object": object_val,
-                "source": "knowledge_graph"
+                "source": "knowledge_graph",
+                "details": details if details else None,
+                "sourceDocument": source_document if source_document else None,
+                "uploadedAt": uploaded_at if uploaded_at else None
             })
         
         # Create export response with metadata

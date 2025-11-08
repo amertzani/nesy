@@ -94,7 +94,7 @@ def show_extracted_text():
         preview += "\n\n... (truncated, showing first 1000 characters)"
     return f" **Last Extracted Text:**\n\n{preview}"
 
-def process_uploaded_file(file):
+def process_uploaded_file(file, original_filename=None):
     if file is None:
         return "No file uploaded."
     # Handle both string paths and file objects
@@ -117,14 +117,52 @@ def process_uploaded_file(file):
         return f" {extracted_text}"
     update_extracted_text(extracted_text)
     preview = extracted_text[:300] + "..." if len(extracted_text) > 300 else extracted_text
-    result = add_to_graph(extracted_text)
+    # Use original filename if provided, otherwise use basename of file path
+    if original_filename:
+        filename = original_filename
+    else:
+        filename = os.path.basename(file_path)
+    
+    display_name = original_filename if original_filename else os.path.basename(file_path)
+    
+    # Debug: Check if text was extracted
+    if not extracted_text or len(extracted_text.strip()) < 10:
+        print(f"⚠️  WARNING: Extracted text is too short or empty for {display_name}")
+        print(f"   Text length: {len(extracted_text) if extracted_text else 0}")
+        return f"⚠️  Warning: Could not extract meaningful text from {display_name}. File may be empty or in an unsupported format."
+    
+    print(f"📄 Processing {display_name}: Extracted {len(extracted_text)} characters")
+    print(f"   Text preview: {extracted_text[:200]}...")
+    
+    timestamp = datetime.now().isoformat()
+    result = add_to_graph(extracted_text, source_document=filename, uploaded_at=timestamp)
+    
+    # Debug: Check if facts were added
+    from knowledge import graph as kb_graph
+    fact_count = len(kb_graph)
+    print(f"✅ After processing {display_name}: Graph now has {fact_count} facts")
+    print(f"   Result message: {result[:200]}...")
+    
     file_size = len(extracted_text)
-    return f" Successfully processed {os.path.basename(file_path)}!\n\n📊 File stats:\n• Size: {file_size:,} characters\n• Type: {file_extension.upper()}\n\n Text preview:\n{preview}\n\n{result}"
+    return f" Successfully processed {display_name}!\n\n📊 File stats:\n• Size: {file_size:,} characters\n• Type: {file_extension.upper()}\n\n Text preview:\n{preview}\n\n{result}"
 
-def handle_file_upload(files):
+def handle_file_upload(files, original_filenames=None):
+    """
+    Process multiple files.
+    
+    Args:
+        files: List of file paths (strings) or file objects
+        original_filenames: Optional dict mapping file paths to original filenames
+                          {file_path: original_filename}
+    """
     global processed_files
     if not files or len(files) == 0:
         return "Please select at least one file to process."
+    
+    # Create mapping if not provided
+    if original_filenames is None:
+        original_filenames = {}
+    
     results = []
     new_processed = []
     for file in files:
@@ -133,14 +171,14 @@ def handle_file_upload(files):
         try:
             if isinstance(file, str):
                 file_path = file
-                file_name = os.path.basename(file)
+                file_name = original_filenames.get(file_path, os.path.basename(file))
             else:
-                file_path = file.name
-                file_name = os.path.basename(file.name)
+                file_path = file.name if hasattr(file, 'name') else str(file)
+                file_name = original_filenames.get(file_path, os.path.basename(file_path))
             if any(f['name'] == file_name for f in processed_files):
                 results.append(f"SKIP: {file_name} - Already processed, skipping")
                 continue
-            result = process_uploaded_file(file)
+            result = process_uploaded_file(file, original_filename=file_name)
             results.append(f"SUCCESS: {file_name} - {result}")
             new_processed.append({
                 'name': file_name,
@@ -148,7 +186,7 @@ def handle_file_upload(files):
                 'processed_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             })
         except Exception as e:
-            file_name = os.path.basename(file) if isinstance(file, str) else os.path.basename(file.name) if hasattr(file, 'name') else str(file)
+            file_name = original_filenames.get(file_path, os.path.basename(file)) if isinstance(file, str) else original_filenames.get(file_path, os.path.basename(file.name)) if hasattr(file, 'name') else str(file)
             results.append(f"ERROR: {file_name} - Error: {e}")
     processed_files.extend(new_processed)
     total_files = len(files)

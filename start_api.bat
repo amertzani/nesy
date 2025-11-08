@@ -9,6 +9,16 @@ echo.
 echo Press Ctrl+C to stop the server
 echo.
 
+REM Check if Triplex should be enabled
+if "%USE_TRIPLEX%"=="true" (
+    echo [INFO] Triplex LLM extraction is ENABLED
+    echo        First extraction may take time to download model (~4GB)
+) else (
+    echo [INFO] Triplex LLM extraction is DISABLED (using regex-based extraction)
+    echo        To enable: set USE_TRIPLEX=true or run enable_triplex.bat
+)
+echo.
+
 REM Check if requirements are installed
 python -c "import fastapi" >nul 2>&1
 if errorlevel 1 (
