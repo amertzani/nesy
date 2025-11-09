@@ -1,15 +1,24 @@
 {
-  "last_updated": "2025-11-08T22:33:44.890346",
-  "total_documents": 1,
+  "last_updated": "2025-11-09T19:39:17.441516",
+  "total_documents": 2,
   "documents": [
     {
       "id": "1",
       "name": "test.txt",
       "type": "txt",
       "size": 129,
-      "uploaded_at": "2025-11-08T22:33:44.890330",
+      "uploaded_at": "2025-11-09T19:39:03.910774",
       "status": "completed",
-      "facts_extracted": 62
+      "facts_extracted": 49
+    },
+    {
+      "id": "2",
+      "name": "test3.txt",
+      "type": "txt",
+      "size": 999,
+      "uploaded_at": "2025-11-09T19:39:17.441502",
+      "status": "completed",
+      "facts_extracted": 147
     }
   ]
 }

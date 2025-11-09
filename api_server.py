@@ -83,6 +83,30 @@ async def lifespan(app: FastAPI):
             if file_size > 1000:  # If file is still large, something went wrong
                 print(f"⚠️  WARNING: Graph file is {file_size} bytes but graph has {fact_count} facts!")
                 print("⚠️  This might indicate the clear didn't work properly")
+        
+        # Pre-load LLM model in background to avoid timeout on first request
+        print("🔄 Pre-loading LLM model for research assistant (this may take 1-2 minutes)...")
+        import asyncio
+        from responses import load_llm_model
+        
+        # Start pre-loading in background (don't block startup)
+        def preload_llm_sync():
+            try:
+                result = load_llm_model()
+                if result:
+                    print("✅ LLM model pre-loaded successfully")
+                else:
+                    print("⚠️  LLM model not available, will use rule-based responses")
+            except Exception as e:
+                print(f"⚠️  Failed to pre-load LLM: {e}")
+                print("   Will use rule-based responses")
+        
+        # Run in background thread (non-blocking)
+        import threading
+        preload_thread = threading.Thread(target=preload_llm_sync, daemon=True)
+        preload_thread.start()
+        print("   (Model loading in background, server is ready)")
+        
     except Exception as e:
         print(f"⚠️  Warning during knowledge graph initialization: {e}")
         import traceback
@@ -152,9 +176,24 @@ async def chat_endpoint(request: ChatMessage):
         # Run the response generation in a thread pool to avoid blocking
         # and set a timeout to prevent hanging
         loop = asyncio.get_event_loop()
+        
+        # Check if LLM is still loading and wait a bit if needed
+        from responses import LLM_PIPELINE, load_llm_model, USE_LLM, LLM_AVAILABLE
+        if USE_LLM and LLM_AVAILABLE and LLM_PIPELINE is None:
+            # Model not loaded yet, try to load it (with timeout)
+            print("⏳ LLM not loaded yet, loading now...")
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, load_llm_model),
+                    timeout=90.0  # Give 90 seconds for model loading
+                )
+            except asyncio.TimeoutError:
+                print("⚠️  LLM loading timed out, using rule-based responses")
+        
+        # Generate response with timeout
         response = await asyncio.wait_for(
             loop.run_in_executor(None, rqa_respond, request.message, request.history),
-            timeout=60.0  # 60 second timeout
+            timeout=45.0  # 45 second timeout for response generation (model should be loaded by now)
         )
         return {
             "response": response,
@@ -377,7 +416,6 @@ async def upload_file_endpoint(files: List[UploadFile] = File(...)):
             facts_after = len(kb_graph)
             facts_extracted = facts_after - facts_before
             
-            print(f"🔍 DEBUG: After reload - facts_before: {facts_before}, facts_after: {facts_after}, extracted: {facts_extracted}")
             
             # CRITICAL: If facts_extracted is 0 but we processed files, check the result message
             # The result message from add_to_graph contains the actual count
@@ -529,8 +567,6 @@ async def get_facts_endpoint():
         # This ensures we have facts that were saved after upload, even if server was restarted
         # The in-memory graph might be empty if server was restarted (cleared on startup)
         load_result = kb_load_knowledge_graph()
-        print(f"📥 GET /api/knowledge/facts: Reloaded graph - {load_result}")
-        print(f"📥 Graph now has {len(kb_graph)} facts in memory")
         
         # Debug: If graph is empty but file exists, something is wrong
         import os
@@ -538,26 +574,42 @@ async def get_facts_endpoint():
             file_size = os.path.getsize("knowledge_graph.pkl")
             if file_size > 1000:  # File has data but graph is empty
                 print(f"⚠️  WARNING: Graph file is {file_size} bytes but graph is empty!")
-                print(f"⚠️  This might indicate a loading issue. Trying to reload...")
                 # Try reloading again
-                load_result = kb_load_knowledge_graph()
-                print(f"📥 Retry load result: {load_result}")
-                print(f"📥 Graph after retry: {len(kb_graph)} facts")
-        
-        # Debug: Show some sample facts from the graph
-        if len(kb_graph) > 0:
-            sample_triples = list(kb_graph)[:3]
-            print(f"📥 Sample triples from graph: {sample_triples}")
+                kb_load_knowledge_graph()
         
         facts = []
-        # Import get_fact_details function
-        from knowledge import get_fact_details as kb_get_fact_details
-        from knowledge import get_fact_source_document as kb_get_fact_source_document
-        from urllib.parse import unquote
+        from urllib.parse import unquote, quote
+        import rdflib
         
+        # OPTIMIZED: Build lookup maps in a single pass instead of calling functions for each fact
+        # This reduces O(n*m) complexity to O(n) where n = total triples, m = facts
+        # Build fact_id_uri -> metadata map first
+        metadata_map = {}  # fact_id_uri -> {details, source_document, uploaded_at}
+        
+        # Pass 1: Collect all metadata triples (O(n))
+        for s, p, o in kb_graph:
+            predicate_str = str(p)
+            
+            if 'has_details' in predicate_str:
+                fact_id_uri = str(s)
+                if fact_id_uri not in metadata_map:
+                    metadata_map[fact_id_uri] = {}
+                metadata_map[fact_id_uri]['details'] = str(o)
+            elif 'source_document' in predicate_str:
+                fact_id_uri = str(s)
+                if fact_id_uri not in metadata_map:
+                    metadata_map[fact_id_uri] = {}
+                metadata_map[fact_id_uri]['source_document'] = str(o)
+            elif 'uploaded_at' in predicate_str:
+                fact_id_uri = str(s)
+                if fact_id_uri not in metadata_map:
+                    metadata_map[fact_id_uri] = {}
+                metadata_map[fact_id_uri]['uploaded_at'] = str(o)
+        
+        # Pass 2: Collect facts and match with metadata using fact_id URI (O(n))
         fact_index = 0
         for s, p, o in kb_graph:
-            # Skip metadata triples (those with special predicates for details, source document, timestamp)
+            # Skip metadata triples
             predicate_str = str(p)
             if ('fact_subject' in predicate_str or 'fact_predicate' in predicate_str or 
                 'fact_object' in predicate_str or 'has_details' in predicate_str or 
@@ -566,23 +618,24 @@ async def get_facts_endpoint():
             
             fact_index += 1
             
-            # Extract subject from URI (urn:subject -> subject)
+            # Extract subject from URI
             subject = str(s).split(':')[-1] if ':' in str(s) else str(s)
-            # Decode URL encoding and replace underscores back to spaces
             subject = unquote(subject).replace('_', ' ')
             
             # Extract predicate from URI
             predicate = str(p).split(':')[-1] if ':' in str(p) else str(p)
             predicate = unquote(predicate).replace('_', ' ')
             
-            # Object is already a literal, just get the string value
+            # Object is already a literal
             object_val = str(o)
             
-            # Get details for this fact
-            details = kb_get_fact_details(subject, predicate, object_val)
+            # Build fact_id URI the same way get_fact_details does (for lookup)
+            fact_id = f"{subject}|{predicate}|{object_val}"
+            fact_id_clean = fact_id.strip().replace(' ', '_')
+            fact_id_uri = f"urn:fact:{quote(fact_id_clean, safe='')}"
             
-            # Get source document and timestamp
-            source_document, uploaded_at = kb_get_fact_source_document(subject, predicate, object_val)
+            # Get metadata from lookup map (O(1) lookup)
+            metadata = metadata_map.get(fact_id_uri, {})
             
             facts.append({
                 "id": str(fact_index),
@@ -590,9 +643,9 @@ async def get_facts_endpoint():
                 "predicate": predicate,
                 "object": object_val,
                 "source": "knowledge_graph",
-                "details": details if details else None,
-                "sourceDocument": source_document if source_document else None,
-                "uploadedAt": uploaded_at if uploaded_at else None
+                "details": metadata.get('details') if metadata.get('details') else None,
+                "sourceDocument": metadata.get('source_document') if metadata.get('source_document') else None,
+                "uploadedAt": metadata.get('uploaded_at') if metadata.get('uploaded_at') else None
             })
         
         print(f"✅ GET /api/knowledge/facts: Returning {len(facts)} facts")
@@ -618,7 +671,6 @@ async def get_facts_endpoint():
             "total_facts": len(facts),  # Use len(facts) not len(kb_graph) since we filter metadata
             "status": "success"
         }
-        print(f"📤 Response structure: {len(response.get('facts', []))} facts, total_facts: {response.get('total_facts')}")
         return response
     except Exception as e:
         print(f"❌ Error getting facts: {str(e)}")

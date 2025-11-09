@@ -131,17 +131,8 @@ def process_uploaded_file(file, original_filename=None):
         print(f"   Text length: {len(extracted_text) if extracted_text else 0}")
         return f"⚠️  Warning: Could not extract meaningful text from {display_name}. File may be empty or in an unsupported format."
     
-    print(f"📄 Processing {display_name}: Extracted {len(extracted_text)} characters")
-    print(f"   Text preview: {extracted_text[:200]}...")
-    
     timestamp = datetime.now().isoformat()
     result = add_to_graph(extracted_text, source_document=filename, uploaded_at=timestamp)
-    
-    # Debug: Check if facts were added
-    from knowledge import graph as kb_graph
-    fact_count = len(kb_graph)
-    print(f"✅ After processing {display_name}: Graph now has {fact_count} facts")
-    print(f"   Result message: {result[:200]}...")
     
     file_size = len(extracted_text)
     return f" Successfully processed {display_name}!\n\n📊 File stats:\n• Size: {file_size:,} characters\n• Type: {file_extension.upper()}\n\n Text preview:\n{preview}\n\n{result}"

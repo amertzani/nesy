@@ -116,7 +116,6 @@ def load_knowledge_graph():
                 loaded_graph = pickle.load(f)
             
             original_count = len(loaded_graph)
-            print(f"🔍 DEBUG: Loaded {original_count} facts from pickle file")
             
             # Clean up any invalid URIs (with spaces) that might cause issues
             # This fixes old facts that were saved with spaces in URIs
@@ -164,7 +163,6 @@ def load_knowledge_graph():
             
             # Verify cleaned_graph has facts
             cleaned_count = len(cleaned_graph)
-            print(f"🔍 DEBUG: cleaned_graph has {cleaned_count} facts after processing")
             
             if cleaned_count == 0 and original_count > 0:
                 print(f"⚠️  CRITICAL ERROR: cleaned_graph is empty but original had {original_count} facts!")
@@ -192,7 +190,6 @@ def load_knowledge_graph():
                 print(f"✅ All {original_count} facts have valid URIs")
             
             final_count = len(graph)
-            print(f"🔍 DEBUG: Final graph has {final_count} facts")
             
             if final_count != original_count:
                 print(f"⚠️  ERROR: Graph count changed from {original_count} to {final_count}!")
@@ -1269,8 +1266,16 @@ def fact_exists(subject: str, predicate: str, object_val: str) -> bool:
     predicate_normalized = str(predicate).strip().lower().replace('_', ' ')
     object_normalized = normalize_entity(str(object_val).strip().lower())
     
+    # OPTIMIZED: Skip metadata triples early to speed up duplicate checking
     # Check all facts in the graph for case-insensitive match with normalization
     for s, p, o in graph:
+        # Skip metadata triples early (much faster than processing them)
+        predicate_str = str(p)
+        if ('fact_subject' in predicate_str or 'fact_predicate' in predicate_str or 
+            'fact_object' in predicate_str or 'has_details' in predicate_str or 
+            'source_document' in predicate_str or 'uploaded_at' in predicate_str):
+            continue
+        
         # Extract and normalize subject from URI
         s_str = str(s)
         if 'urn:' in s_str:
@@ -1331,57 +1336,76 @@ def add_to_graph(text, source_document: str = "manual", uploaded_at: str = None)
     triplex_count = 0
     regex_count = 0
     
-    # Try improved pattern extraction first (enhanced regex)
+    # OPTIMIZED: Combine fast extraction methods for comprehensive coverage
+    # Strategy: Run both improved patterns AND context extraction (both fast, catch different patterns)
+    # Only skip Triplex (slow) if we already have good results
+    
     improved_triples = []
+    triplex_triples = []
+    new_triples_with_context = []
+    new_triples = []
+    
+    # Always run improved pattern extraction (fast, catches capitalized entities)
     try:
         improved_triples = extract_with_improved_patterns(text)
         if improved_triples:
             improved_count = len(improved_triples)
-            extraction_method = "improved_patterns"
             print(f"✅ Improved patterns extracted {improved_count} triples")
+        else:
+            improved_triples = []
     except Exception as e:
-        print(f"⚠️  Improved pattern extraction failed: {e}, continuing with other methods")
+        print(f"⚠️  Improved pattern extraction failed: {e}")
         improved_triples = []
     
-    # Try Triplex extraction if enabled (heavier, but higher quality when it works)
-    triplex_triples = []
-    if USE_TRIPLEX and TRIPLEX_AVAILABLE:
+    # Always run context extraction (fast, catches lowercase/case-insensitive patterns)
+    # This complements improved patterns by finding different types of relationships
+    try:
+        new_triples_with_context = extract_triples_with_context(text)
+        if new_triples_with_context:
+            print(f"✅ Context extraction found {len(new_triples_with_context)} triples")
+        else:
+            new_triples_with_context = []
+    except Exception as e:
+        print(f"⚠️  Context extraction failed: {e}")
+        new_triples_with_context = []
+    
+    # Only try Triplex if we didn't find much from fast methods AND Triplex is enabled
+    # Triplex is slow, so skip if we already have good results
+    total_fast_triples = len(improved_triples) + len(new_triples_with_context)
+    if total_fast_triples < 5 and USE_TRIPLEX and TRIPLEX_AVAILABLE:
         try:
-            print("=" * 60)
-            print("🔄 TRIPLEX EXTRACTION ENABLED - Attempting LLM-based extraction...")
-            print("=" * 60)
             triplex_triples = extract_with_triplex(text)
-            if triplex_triples:
+            if triplex_triples and len(triplex_triples) > 0:
                 triplex_count = len(triplex_triples)
                 extraction_method = "triplex"
-                print(f"✅ TRIPLEX SUCCESS: Extracted {triplex_count} triples using LLM")
-                print("=" * 60)
+                print(f"✅ TRIPLEX: Extracted {triplex_count} triples using LLM")
             else:
-                if extraction_method == "regex":
-                    print("⚠️  Triplex returned no triples, using spaCy/regex")
-                    extraction_method = "spacy/regex (triplex returned no results)"
+                triplex_triples = []
         except Exception as e:
-            if extraction_method == "regex":
-                print(f"⚠️  Triplex extraction failed: {e}, using spaCy/regex")
-                extraction_method = "spacy/regex (triplex failed)"
+            print(f"⚠️  Triplex extraction failed: {e}")
             triplex_triples = []
+    
+    # Final fallback: regular triples only if nothing else worked
+    if not improved_triples and not triplex_triples and not new_triples_with_context:
+        try:
+            new_triples = extract_triples(text)
+            if new_triples:
+                print(f"✅ Fallback extraction found {len(new_triples)} triples")
+        except Exception as e:
+            print(f"⚠️  Fallback extraction failed: {e}")
+            new_triples = []
+    
+    # Determine extraction method for reporting
+    if triplex_triples:
+        extraction_method = "triplex"
+    elif improved_triples and new_triples_with_context:
+        extraction_method = "improved_patterns+context"
+    elif improved_triples:
+        extraction_method = "improved_patterns"
+    elif new_triples_with_context:
+        extraction_method = "context"
     else:
-        if not USE_TRIPLEX and extraction_method in ["regex", "improved_patterns"]:
-            if extraction_method == "improved_patterns":
-                print("ℹ️  Triplex disabled, using improved patterns")
-            else:
-                print("ℹ️  Triplex disabled, using regex")
-        elif not TRIPLEX_AVAILABLE and extraction_method in ["regex", "improved_patterns"]:
-            if extraction_method == "improved_patterns":
-                print("ℹ️  Triplex not available, using improved patterns")
-            else:
-                print("ℹ️  Triplex not available, using regex")
-    
-    # Use the new extraction function that provides cleaner entities and context
-    new_triples_with_context = extract_triples_with_context(text)
-    
-    # Also get regular triples as fallback, but we'll clean them too
-    new_triples = extract_triples(text)
+        extraction_method = "regex"
     
     added_count = 0
     skipped_count = 0
@@ -1552,16 +1576,11 @@ def add_to_graph(text, source_document: str = "manual", uploaded_at: str = None)
     # Count triples by method (only count what was actually added)
     triplex_added = sum(1 for s, p, o, _ in triplex_triples if (s.lower().strip(), p.lower().strip(), o.lower().strip()) in added_facts)
     improved_added = sum(1 for s, p, o, _ in improved_triples if (s.lower().strip(), p.lower().strip(), o.lower().strip()) in added_facts)
-    regex_count = added_count - improved_added - triplex_added
-    
-    # Debug: Log what we're about to save
-    print(f"🔍 DEBUG: About to save graph with {len(graph)} facts")
-    print(f"   Added: {added_count}, Skipped: {skipped_count}")
-    print(f"   Improved: {improved_added}, Triplex: {triplex_added}, Regex: {regex_count}")
+    context_added = sum(1 for s, p, o, _ in new_triples_with_context if (s.lower().strip(), p.lower().strip(), o.lower().strip()) in added_facts)
+    regex_count = added_count - improved_added - triplex_added - context_added
     
     # Save graph to disk
-    save_result = save_knowledge_graph()
-    print(f"💾 Save result: {save_result}")
+    save_knowledge_graph()
     
     # Verify save worked
     import os
@@ -1573,8 +1592,12 @@ def add_to_graph(text, source_document: str = "manual", uploaded_at: str = None)
     method_info = f"[{extraction_method.upper()}]"
     if extraction_method == "triplex":
         method_info = f"🤖 [TRIPLEX LLM] - {triplex_added} triples from LLM"
+    elif extraction_method == "improved_patterns+context":
+        method_info = f"✅ [IMPROVED PATTERNS + CONTEXT] - {improved_added} from patterns, {context_added} from context"
     elif extraction_method == "improved_patterns":
         method_info = f"✨ [IMPROVED PATTERNS] - {improved_added} triples from enhanced extraction"
+    elif extraction_method == "context":
+        method_info = f"✅ [CONTEXT EXTRACTION] - {context_added} triples"
     elif "improved" in extraction_method.lower() and "regex" in extraction_method.lower():
         method_info = f"✨ [IMPROVED/REGEX] - {improved_added} from patterns, {regex_count} from regex"
     elif "triplex" in extraction_method.lower():
@@ -1586,7 +1609,7 @@ def add_to_graph(text, source_document: str = "manual", uploaded_at: str = None)
         return f"{method_info}\n Added {added_count} new triples, skipped {skipped_count} duplicates. Total facts stored: {len(graph)}.\n Saved"
     return f"{method_info}\n Added {added_count} new triples. Total facts stored: {len(graph)}.\n Saved"
 
-def retrieve_context(question, limit=15):
+def retrieve_context(question, limit=None):
     """
     Retrieve relevant context from knowledge graph for answering questions.
     Uses improved semantic matching and includes details for better context.
@@ -1594,14 +1617,29 @@ def retrieve_context(question, limit=15):
     from urllib.parse import unquote
     from knowledge import get_fact_details
     
-    matches = []
-    qwords = [w for w in question.lower().split() if w not in {
-        'the','a','an','and','or','but','in','on','at','to','for','of','with','by','is','are','was','were','be','been','have','has','had','do','does','did','will','would','could','should','may','might','can','what','how','when','where','why','who','which','this','that','these','those'
-    } and len(w) > 2]
+    # Extract meaningful keywords from question (remove stopwords)
+    stopwords = {
+        'the','a','an','and','or','but','in','on','at','to','for','of','with','by',
+        'is','are','was','were','be','been','have','has','had','do','does','did',
+        'will','would','could','should','may','might','can','what','how','when',
+        'where','why','who','which','this','that','these','those','tell','me','about',
+        'show','give','explain','describe','list','from','there','here'
+    }
+    
+    # Extract keywords - keep words longer than 2 chars and not stopwords
+    qwords = [w.lower().strip() for w in question.split() 
+              if w.lower().strip() not in stopwords and len(w.strip()) > 2]
+    
+    # Also extract potential entity names (capitalized words, acronyms)
+    entities = [w for w in question.split() if (w[0].isupper() or w.isupper()) and len(w) > 1]
+    qwords.extend([w.lower() for w in entities])
+    
+    # Remove duplicates
+    qwords = list(set(qwords))
     
     if not qwords:
-        # If no meaningful words, use the whole question
-        qwords = [w for w in question.lower().split() if len(w) > 2]
+        # If no meaningful words, use the whole question (excluding very short words)
+        qwords = [w.lower() for w in question.split() if len(w) > 2]
     
     scored_matches = []
     for s, p, o in graph:
@@ -1626,44 +1664,116 @@ def retrieve_context(question, limit=15):
         # Build fact text for matching
         fact_text = f"{subject} {predicate} {object_val}".lower()
         
-        # Calculate relevance score
+        # Calculate relevance score with improved matching
         score = 0
+        
+        # Exact word matches
         for word in qwords:
             word_lower = word.lower()
+            
+            # Check if word appears in any part of the fact
             if word_lower in fact_text:
+                # Base score for any match
                 score += 1
-                # Higher score for matches in subject or predicate
+                
+                # Higher scores for matches in important positions
                 if word_lower in subject.lower():
-                    score += 3
+                    score += 5  # Subject matches are most important
                 if word_lower in predicate.lower():
-                    score += 2
+                    score += 3  # Predicate matches are important
                 if word_lower in object_val.lower():
+                    score += 2  # Object matches are relevant
+                
+                # Bonus for exact word match (not substring)
+                if f" {word_lower} " in f" {fact_text} ":
+                    score += 2
+        
+        # Partial/substring matches (for abbreviations, partial words)
+        for word in qwords:
+            if len(word) > 3:  # Only for longer words
+                if word in subject.lower():
+                    score += 2
+                if word in object_val.lower():
                     score += 1
         
-        # Also check for partial matches and synonyms
-        question_lower = question.lower()
-        if any(word in subject.lower() for word in qwords):
-            score += 2
-        if any(word in object_val.lower() for word in qwords):
-            score += 1
+        # Entity name matching (case-insensitive, handles acronyms)
+        for entity in entities:
+            entity_lower = entity.lower()
+            if entity_lower in subject.lower() or entity_lower in object_val.lower():
+                score += 4  # Entity matches are very relevant
+            # Also check if entity is part of a word (for acronyms)
+            if len(entity) > 2:
+                if entity_lower in fact_text:
+                    score += 2
         
+        # Only include facts with positive scores
         if score > 0:
+            # Track where matches were found
+            match_locations = []
+            for word in qwords:
+                word_lower = word.lower()
+                if word_lower in subject.lower():
+                    match_locations.append("subject")
+                if word_lower in predicate.lower():
+                    match_locations.append("predicate")
+                if word_lower in object_val.lower():
+                    match_locations.append("object")
+            
+            # Remove duplicates and create match location string
+            unique_locations = list(set(match_locations))
+            if unique_locations:
+                match_str = f"[Match in: {', '.join(unique_locations)}]"
+            else:
+                match_str = "[Match found]"
+            
             # Get details for richer context
             details = get_fact_details(subject, predicate, object_val)
-            fact_with_details = f"{subject} {predicate} {object_val}"
-            if details:
-                fact_with_details += f" (Details: {details[:100]})"
             
-            scored_matches.append((score, fact_with_details, subject, predicate, object_val))
+            # Get source document
+            source_doc, uploaded_at = get_fact_source_document(subject, predicate, object_val)
+            
+            # Build fact description with match location, details, and source
+            fact_desc = f"{match_str} {subject} {predicate} {object_val}"
+            if details:
+                fact_desc += f" | Details: {details}"
+            if source_doc:
+                fact_desc += f" | Source: {source_doc}"
+            
+            scored_matches.append((score, fact_desc, subject, predicate, object_val, unique_locations))
     
-    # Sort by score and get top matches
+    # Sort by score (highest first)
     scored_matches.sort(key=lambda x: x[0], reverse=True)
-    matches = [m[1] for m in scored_matches[:limit]]
     
-    if matches:
-        result = "**Relevant Knowledge from Knowledge Base:**\n\n"
-        for i, match in enumerate(matches, 1):
+    # Remove duplicates (same fact with different scores) - but return ALL unique matches
+    seen_facts = set()
+    unique_matches = []
+    for match_data in scored_matches:
+        # Handle both old format (5 items) and new format (6 items)
+        if len(match_data) == 6:
+            score, fact_desc, subj, pred, obj, match_locs = match_data
+        else:
+            score, fact_desc, subj, pred, obj = match_data[:5]
+            match_locs = []
+        
+        fact_key = (subj.lower(), pred.lower(), obj.lower())
+        if fact_key not in seen_facts:
+            seen_facts.add(fact_key)
+            unique_matches.append(fact_desc)
+            # No limit - return all relevant facts
+    
+    if unique_matches:
+        result = f"**Relevant Knowledge from Your Documents ({len(unique_matches)} facts found):**\n\n"
+        for i, match in enumerate(unique_matches, 1):
             result += f"{i}. {match}\n"
+        return result
+    
+    # If no matches, try a broader search (lower threshold)
+    if not unique_matches and scored_matches:
+        # Return all even with lower scores
+        result = f"**Partially Relevant Knowledge ({len(scored_matches)} facts found):**\n\n"
+        for i, match_data in enumerate(scored_matches, 1):
+            fact_desc = match_data[1] if len(match_data) > 1 else str(match_data)
+            result += f"{i}. {fact_desc}\n"
         return result
     
     return "**No directly relevant facts found in the knowledge base.**\n\nTry asking about topics that might be in your knowledge base, or add more knowledge by uploading documents or adding text."
